@@ -65,6 +65,10 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 #tools{position:fixed;right:10px;bottom:calc(env(safe-area-inset-bottom) + 12px);display:flex;gap:8px;z-index:4}
 .ic{width:52px;height:52px;border-radius:50%;border:0;background:#0008;color:#fff;font-size:24px;font-weight:900}
 .stars{font-size:44px;letter-spacing:6px;color:#ffe14d;text-shadow:0 3px 0 #b37b00}
+.howto{justify-content:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:calc(env(safe-area-inset-top) + 18px) 16px 28px;touch-action:pan-y}
+.howto .card{background:#ffffff1c;border:2px solid #ffffff30;border-radius:18px;padding:12px 14px;display:flex;gap:12px;align-items:center;text-align:left;width:100%;max-width:420px;flex-shrink:0}
+.howto .card .em{font-size:34px;min-width:46px;text-align:center;filter:drop-shadow(0 3px 0 #0005)}.howto .card b{color:#ffe14d;font-size:17px}.howto .card p b{font-size:inherit}.howto .card p{font-size:14px;line-height:1.35;margin-top:2px}
+.howto canvas{position:static;width:46px;height:46px;flex-shrink:0}
 .dim{opacity:.85;font-size:16px}
 </style></head><body>
 <canvas id="cv"></canvas>
@@ -77,6 +81,7 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
  <div class="grid" id="lvGrid"></div><div class="dots" id="wDots"></div><button class="btn alt" id="bBack">Back</button></div>
 <div class="scr" id="sEnd"><h2 id="eTitle"></h2><div class="stars" id="eStars"></div><div id="eMsg" class="dim"></div><div id="endExtra"></div>
  <button class="btn" id="bNext">Next</button><button class="btn alt" id="bRetry">Retry</button><button class="btn alt" id="bMenu">Menu</button></div>
+<div class="scr howto" id="sHow"><h2>How to Play</h2><div id="howCards" style="display:flex;flex-direction:column;gap:10px;align-items:center;width:100%"></div><button class="btn alt" id="bHowBack" style="margin-top:6px;flex-shrink:0">Back</button></div>
 <script>
 'use strict';
 /* ===================== FEATURES: flip to true/false ===================== */
@@ -92,6 +97,7 @@ const FEATURES={
   levelSelect:true,  // level select screen
   boosters:true,     // tap-to-use Magnet booster (costs coins if coins on)
   farmer:true,       // a friendly farmer chases the hole; swallow him late for a bonus
+  howToPlay:true,    // 'How to Play' guide screen from the main menu
   leaderboard:false, // local stub for best scores (swap in a server later)
 };
 /* ===================== DATA: object types ===================== */
@@ -127,7 +133,8 @@ const OBJECT_TYPES={
 /* ===================== DATA: themes + level generator =====================
  Levels 7-100 are generated (deterministically) from THEMES, one theme per 10
  levels. Edit a theme to restyle a world; edit TUNING to change the curve.
- Every 10th level is a "bonus" breather (lots of small animals, slow farmer).
+ Every 10th level is a "bonus" breather (lots of small animals, slow farmer);
+ farmer catches there also shrink the hole.
  To hand-make any level instead, put an object in LEVEL_OVERRIDES[levelNumber]. */
 const THEMES=[
  {name:'Meadow',   ground:['#9be86a','#8bdc5a'],mix:{chick:3,duck:2,cat:3,dog:3,sheep:2,crop:2,pumpkin:1,fence:1,cow:1}},
@@ -417,6 +424,10 @@ $('wPrev').onclick=()=>G.renderSelect(G.page-1);$('wNext').onclick=()=>G.renderS
 G.ui={tool(label,fn){const b=document.createElement('button');b.className='ic';b.textContent=label;b.onclick=e=>{e.stopPropagation();fn(b)};$('tools').appendChild(b);return b},
   extra(id){const s=document.createElement('span');s.className='pill';s.id=id;$('hudExtra').appendChild(s);return s}};
 
+G.timePop=(txt)=>{const t=$('hTime'),r=t.getBoundingClientRect(),d=document.createElement('div');d.textContent=txt;
+  d.style.cssText='position:fixed;z-index:6;pointer-events:none;font:900 26px system-ui;color:#ff4a5a;text-shadow:0 2px 0 #fff,0 0 8px #fff;transition:transform .9s ease-out,opacity .9s;left:'+(r.left+r.width/2-20)+'px;top:'+(r.bottom+2)+'px';
+  document.body.appendChild(d);t.animate([{transform:'scale(1.35)',background:'#ff4a5a'},{transform:'scale(1)'}],{duration:500});
+  requestAnimationFrame(()=>{d.style.transform='translateY(28px) scale(1.2)';d.style.opacity='0'});setTimeout(()=>d.remove(),950)};
 /* ===================== MODULES (each guarded by its flag) ===================== */
 // --- TIMER ---
 if(FEATURES.timer)G.use({
@@ -441,7 +452,7 @@ if(FEATURES.sound){let ac=null,muted=localStorage.getItem('slyescape.mute')==='1
     swallow(G,o){const P=WORLD_SFX[G.worldOf()%WORLD_SFX.length];tone(P[1]+Math.min(600,(G.combo||1)*60),0.18,P[0],P[0]==='sawtooth'||P[0]==='square'?0.06:0.12,P[2]);if(FEATURES.combos&&G.combo>0&&G.combo%5===0)tone(P[1]*2,0.25,P[0],0.06,P[1])},
     levelEnd(G,r){const P=WORLD_SFX[G.worldOf()%WORLD_SFX.length];r.win?P[3].forEach((f,i)=>setTimeout(()=>tone(f,0.2,P[0],0.08),i*110)):tone(300,0.5,'sawtooth',0.08,-200)},
     stunned(){tone(200,0.3,'square',0.1,200)},bigBonus(){[784,988,1175,1568].forEach((f,i)=>setTimeout(()=>tone(f,0.15,'triangle',0.12),i*70))}})}
-// --- MUSIC (procedural, per world; boss levels faster + punchier) ---
+// --- MUSIC (procedural, per world; bonus levels faster + punchier) ---
 if(FEATURES.music){
   // per world: tempo, root note (Hz), scale (semitones), lead wave, bass wave, feel
   const SONGS=[{bpm:120,root:262,scale:[0,2,4,7,9],lead:'triangle',bass:'triangle',pluck:true}, // Meadow: banjo-ish pentatonic pluck
@@ -463,7 +474,7 @@ if(FEATURES.music){
       if(deg!=null){const k=deg+chord,f=song.root*2**((sc[k%sc.length]+12*Math.floor(k/sc.length))/12);note(f,next,song.pluck?spb*0.9:spb*1.6,song.lead,song.bell?0.5:0.7);
         if(song.bell&&step%2===0)note(f*2,next,0.3,'sine',0.25)}
       if(step%4===0)note(song.root/2*2**(sc[chord%sc.length]/12),next,spb*3,song.bass,0.9);
-      if(song.boss&&step%2===1)note(90,next,0.05,'square',0.35); // upbeat tick for boss levels
+      if(song.boss&&step%2===1)note(90,next,0.05,'square',0.35); // upbeat tick for bonus levels
       next+=spb;step++}}
   function start(){const ac=G.getAC();if(!ac||!on||G.state!=='play'||!G.L)return;stop();
     master=ac.createGain();master.gain.value=VOL;master.connect(ac.destination);
@@ -541,7 +552,7 @@ if(FEATURES.farmer){
         const T=OBJECT_TYPES[kind],ar=r*0.85;c.save();c.translate(0,-hh*1.05);
         drawAnimal({T,face:1,scared:true,moving:true,rot:0},ar,T.h*ar/T.size,T.color,T.color2);c.restore();
         c.font='900 '+Math.max(12,r*0.7)+'px system-ui';c.textAlign='center';c.fillText('💦',-r*0.7,-hh*0.95)}}};
-  let F=null;
+  let F=null;G.drawFarmerIcon=x=>FT.draw(x,{face:1},17,28,1);
   G.use({
     levelStart(G,L){F={id:'farmer',T:FT,size:FT.size,x:40,y:40,noCount:true,noEat:true,pts:FT.pts,cool:2,speed:L.farmer||60,edible:false};G.objs.push(F)},
     update(G,dt){if(!F||!G.objs.includes(F)){F=null;return}const h=G.hole;
@@ -550,12 +561,38 @@ if(FEATURES.farmer){
       const dir=F.edible?-1:(F.cool>0?-0.4:1); // flee when edible, back off after a catch
       const sp=F.speed*(F.edible?0.8:1);F.x+=dx/d*sp*dt*dir;F.y+=dy/d*sp*dt*dir;if(Math.abs(dx*dir)>1)F.face=dx*dir>0?1:-1;
       F.x=Math.max(20,Math.min(G.L.size[0]-20,F.x));F.y=Math.max(20,Math.min(G.L.size[1]-20,F.y));
-      if(!F.edible&&F.cool<=0&&d<h.r+F.size*0.6){h.stun=G.L.farmerStun||1;h.tr=Math.max(16,h.tr*0.93);F.cool=G.L.farmerCool||3;G.hook('stunned');
+      if(!F.edible&&F.cool<=0&&d<h.r+F.size*0.6){h.stun=G.L.farmerStun||1;F.cool=G.L.farmerCool||3;F.catches=(F.catches||0)+1;if(G.L.bonus||(G.li+1)%10===0)h.tr=Math.max(16,h.tr*0.93);G.hook('stunned');G.hook('farmerCatch',F.catches);
+        if(FEATURES.timer&&!G.over){const n=F.catches;G.timeLeft=Math.max(0,G.timeLeft-n);G.timePop('-'+n+'s')}
         G.addFx({x:h.x,y:h.y,t:0,life:1,draw(c,f){const[sx,sy]=G.toScreen(f.x,f.y);c.globalAlpha=1-f.t;c.font='900 24px system-ui';c.textAlign='center';c.fillStyle='#fff';c.strokeStyle='#2a0f6b';c.lineWidth=4;c.strokeText('Shoo! 💫',sx,sy-40-f.t*30);c.fillText('Shoo! 💫',sx,sy-40-f.t*30);c.globalAlpha=1}})}},
     swallow(G,o){if(o===F){G.hook('bigBonus');G.addFx({t:0,life:1.5,draw(c,f){c.save();c.globalAlpha=Math.min(1,2*(1-f.t/f.life));c.font='900 34px system-ui';c.textAlign='center';c.fillStyle='#ffe14d';c.strokeStyle='#ff2fa0';c.lineWidth=6;
       c.strokeText('FARMER BONUS!',G.W/2,G.H*0.3);c.fillText('FARMER BONUS!',G.W/2,G.H*0.3);c.font='900 20px system-ui';c.strokeText('+ his '+['sheep','pig','cow'][(G.li||0)%3]+' too!',G.W/2,G.H*0.3+30);c.fillText('+ his '+['sheep','pig','cow'][(G.li||0)%3]+' too!',G.W/2,G.H*0.3+30);c.restore()}})}},
     modifyGrowth(G,o,a){return o===F?a*0.3:a},
     drawHud(G,c){if(!F||!F.edible)return;c.font='900 16px system-ui';c.textAlign='center';c.fillStyle='#fff';c.fillText('🧑‍🌾 is snackable now! +500',G.W/2,G.H-90)}})}
+// --- HOW TO PLAY (illustrated guide screen) ---
+if(FEATURES.howToPlay){
+  const CARDS=[
+   ['hole','Drag to steer','Put your finger anywhere and drag. The hole slides the way you drag, like a joystick.'],
+   ['🐔','Swallow smaller things','Anything smaller than your hole tumbles in. Every bite makes the hole grow!'],
+   ['🐄','Big stuff needs a big hole','Cows, horses, tractors, silos and barns just wobble until your hole is large enough. Eat small first, then go big.'],
+   ['🎯','Level goals','Fill the progress bar: either <b>clear a %</b> of the farm or <b>reach a size</b>. The bar at the top shows how close you are.'],
+   ['⏱️','Timer & stars','Beat the goal before time runs out. Finish fast or clear lots for up to <b>★★★</b>.'],
+   ['🔥','Combos','Gobble things quickly one after another for a COMBO multiplier — up to x10 points.'],
+   ['🪙','Coins & Magnet','Win levels to earn coins. Tap <b>🧲</b> (20 coins) to pull nearby small things into the hole for 5 seconds.'],
+   ['farmer','Watch out for the farmer!','He chases you waving a pitchfork. Each catch stuns you briefly and costs time, getting worse each time: <b>-1s, -2s, -3s…</b> (resets every level). On gold <b>★ Bonus</b> levels a catch costs the time <b>and</b> shrinks your hole a little!'],
+   ['🐑','Turn the tables','Late in a level, once you are big, he panics, grabs an animal and runs. Swallow him and his animal for a <b>+500 FARMER BONUS</b>!'],
+   ['🌍','Worlds & bonus levels','10 farm worlds with 10 levels each — meadow to giant ranch. Every 10th level is a gold <b>★ Bonus</b> level with its own upbeat music.'],
+   ['🔊','Sound & music','<b>🔊</b> toggles sound effects, <b>🎵</b> toggles music. Your choice is remembered.'],
+  ].filter(c=>!((c[0]==='⏱️'&&!FEATURES.timer)||(c[0]==='🔥'&&!FEATURES.combos)||(c[0]==='🪙'&&!FEATURES.boosters&&!FEATURES.coins)||((c[0]==='farmer'||c[0]==='🐑')&&!FEATURES.farmer)||(c[0]==='🔊'&&!FEATURES.sound&&!FEATURES.music)));
+  function icon(kind){const c=document.createElement('canvas'),d=Math.min(3,devicePixelRatio||1);c.width=c.height=46*d;const x=c.getContext('2d');x.scale(d,d);
+    if(kind==='hole'){const g=x.createLinearGradient(0,10,0,38);g.addColorStop(0,'#5a3a9a');g.addColorStop(1,'#030008');x.fillStyle='#6b4a2a';x.beginPath();x.ellipse(23,26,21,15,0,0,7);x.fill();
+      x.fillStyle=g;x.beginPath();x.ellipse(23,25,18,13,0,0,7);x.fill();x.strokeStyle='#ff4fd8';x.lineWidth=3;x.stroke();x.font='16px system-ui';x.fillText('👆',26,16)}
+    else{x.translate(20,44);x.strokeStyle='#2b1838';x.lineWidth=1.2;G.drawFarmerIcon&&G.drawFarmerIcon(x)}
+    return c}
+  G.use({init(G){const b=document.createElement('button');b.className='btn alt';b.id='bHow';b.textContent='How to Play';$('menuExtra').prepend(b);
+      const box=$('howCards');for(const[ic,t,p]of CARDS){const d=document.createElement('div');d.className='card';
+        if(ic==='hole'||ic==='farmer')d.appendChild(icon(ic));else{const e=document.createElement('div');e.className='em';e.textContent=ic;d.appendChild(e)}
+        const tx=document.createElement('div');tx.innerHTML='<b>'+t+'</b><p>'+p+'</p>';d.appendChild(tx);box.appendChild(d)}
+      b.onclick=()=>{G.hook('userGesture');G.show('sHow');$('sHow').scrollTop=0};$('bHowBack').onclick=()=>G.show('sMenu')}})}
 // --- LEADERBOARD (local stub; replace save/load with server calls later) ---
 if(FEATURES.leaderboard){const KEY='slyescape.lb';
   G.leaderboard={load:()=>JSON.parse(localStorage.getItem(KEY)||'[]'),submit(name,score,level){const l=this.load();l.push({name,score,level,at:Date.now()});l.sort((a,b)=>b.score-a.score);localStorage.setItem(KEY,JSON.stringify(l.slice(0,20)))}};
