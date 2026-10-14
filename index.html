@@ -19,7 +19,10 @@
       modifyGrowth(G,obj,amt) -> amt           modifyScore(G,obj,pts) -> pts
     To add a feature: add a flag, then `if(FEATURES.x) Game.use({...})`.
     To remove one entirely: delete its flag and its module block.
- 2. LEVELS: one entry in the LEVELS array = one level. Fields:
+ 2. LEVELS: 1-6 are hand-made entries; 7-100 come from generateLevels(),
+    driven by THEMES (one farm theme per 10 levels), TUNING (difficulty
+    ranges, capped so late levels stay beatable) and LEVEL_OVERRIDES (drop a
+    hand-made level in by number). One level entry has these fields:
       name, time (sec), goal {type:'clear',pct} or {type:'size',r},
       size [w,h], ground [colA,colB], spawn [[typeId,count],...],
       farmer (chase speed, optional)
@@ -44,7 +47,12 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
  box-shadow:0 6px 0 #b35500,0 10px 20px #0006;cursor:pointer;min-width:200px}
 .btn:active{transform:translateY(4px);box-shadow:0 2px 0 #b35500}
 .btn.alt{background:linear-gradient(#4fe3ff,#1e8cff);box-shadow:0 6px 0 #0a4fa8,0 10px 20px #0006}
-.grid{display:grid;grid-template-columns:repeat(3,86px);gap:12px}
+.grid{display:grid;grid-template-columns:repeat(5,58px);gap:10px}
+.grid .lv{height:66px;font-size:22px;border-radius:14px}.grid .lv small{font-size:10px;bottom:4px}
+.grid .lv.bonus{background:linear-gradient(#ffcf33,#ff8a00);box-shadow:0 5px 0 #b35500}
+.wnav{display:flex;align-items:center;gap:10px}.wnav .ic{background:#fff3}
+#wTitle{min-width:190px;font-size:20px;font-weight:900}#wStars{font-size:15px;color:#ffe14d}
+.dots{display:flex;gap:5px}.dots i{width:8px;height:8px;border-radius:50%;background:#fff4}.dots i.on{background:#ffe14d}
 .lv{height:86px;border-radius:18px;border:0;font-size:28px;font-weight:900;color:#fff;background:linear-gradient(#5dff9a,#14b35c);box-shadow:0 5px 0 #0a6b37;position:relative}
 .lv small{position:absolute;bottom:6px;left:0;right:0;font-size:13px;color:#ffe14d}
 .lv[disabled]{background:#5a4a8a;box-shadow:0 5px 0 #3a2d63;color:#9c8fc7}
@@ -65,7 +73,8 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 <div id="tools"></div>
 <div class="scr on" id="sMenu"><h1>SLY<br>ESCAPE</h1><div class="dim">Drag anywhere to steer. Swallow the farm, grow bigger!</div>
  <button class="btn" id="bPlay">PLAY</button><div id="menuExtra" style="display:flex;flex-direction:column;gap:12px;align-items:center"></div></div>
-<div class="scr" id="sSelect"><h2>Levels</h2><div class="grid" id="lvGrid"></div><button class="btn alt" id="bBack">Back</button></div>
+<div class="scr" id="sSelect"><h2>Levels</h2><div class="wnav"><button class="ic" id="wPrev">‹</button><div><div id="wTitle"></div><div id="wStars"></div></div><button class="ic" id="wNext">›</button></div>
+ <div class="grid" id="lvGrid"></div><div class="dots" id="wDots"></div><button class="btn alt" id="bBack">Back</button></div>
 <div class="scr" id="sEnd"><h2 id="eTitle"></h2><div class="stars" id="eStars"></div><div id="eMsg" class="dim"></div><div id="endExtra"></div>
  <button class="btn" id="bNext">Next</button><button class="btn alt" id="bRetry">Retry</button><button class="btn alt" id="bMenu">Menu</button></div>
 <script>
@@ -73,7 +82,8 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 /* ===================== FEATURES: flip to true/false ===================== */
 const FEATURES={
   timer:true,        // countdown per level (off = untimed; finish by reaching goal)
-  sound:true,        // WebAudio sound effects + mute button
+  sound:true,        // WebAudio sound effects (per-world palette) + mute button
+  music:true,        // per-world procedural background music + its own mute button
   combos:true,       // quick successive swallows multiply points
   particles:true,    // little bursts when things fall in
   popText:true,      // floating "+10" text
@@ -104,16 +114,65 @@ const OBJECT_TYPES={
   tree:  {size:24,pts:30,shape:'tree', color:'#3fd45a',color2:'#8a5520',h:40},
   tractor:{size:32,pts:60,shape:'car', color:'#2fbf4a',color2:'#ffe14d',h:22},
   silo:  {size:36,pts:80,shape:'silo', color:'#d8dde8',color2:'#e0413a',h:70},
+  apple: {size:9, pts:7, shape:'ball', color:'#ff4433',color2:'#3c8f2a',h:9},
+  orange:{size:11,pts:9, shape:'ball', color:'#ff9a1f',color2:'#3c8f2a',h:10},
+  grapes:{size:9, pts:8, shape:'ball', color:'#9a4fe0',color2:'#3c8f2a',h:8},
+  snowball:{size:11,pts:9,shape:'ball', color:'#f4f8ff',color2:'#ff9a1f',h:10},
+  pine:  {size:22,pts:28,shape:'tree', color:'#1f9a6a',color2:'#6a4020',h:44},
+  lantern:{size:8,pts:8, shape:'cone', color:'#ffd23f',color2:'#ff5a3a',h:14},
+  balloon:{size:10,pts:10,shape:'ball',color:'#ff4fd8',color2:'#ffffff',h:12},
+  wagon: {size:28,pts:50,shape:'car',  color:'#c98a3e',color2:'#ffd84d',h:20},
   barn:  {size:58,pts:150,shape:'house',color:'#e0413a',color2:'#8a1f1f',h:50},
 };
+/* ===================== DATA: themes + level generator =====================
+ Levels 7-100 are generated (deterministically) from THEMES, one theme per 10
+ levels. Edit a theme to restyle a world; edit TUNING to change the curve.
+ Every 10th level is a "bonus" breather (lots of small animals, slow farmer).
+ To hand-make any level instead, put an object in LEVEL_OVERRIDES[levelNumber]. */
+const THEMES=[
+ {name:'Meadow',   ground:['#9be86a','#8bdc5a'],mix:{chick:3,duck:2,cat:3,dog:3,sheep:2,crop:2,pumpkin:1,fence:1,cow:1}},
+ {name:'Pond',     ground:['#8fe0a0','#7fd290'],mix:{duck:5,chick:2,cat:2,dog:2,goat:1,sheep:2,crop:1,fence:1,hay:1,horse:1}},
+ {name:'Orchard',  ground:['#a8e870','#98da60'],mix:{cat:3,dog:3,sheep:2,pig:2,goat:1,cow:1,orange:2,apple:2,tree:2,hay:1}},
+ {name:'Pumpkin Patch',ground:['#e8d27a','#dcc46a'],mix:{cat:3,dog:2,sheep:2,pig:3,goat:1,cow:1,pumpkin:4,hay:2,tractor:1}},
+ {name:'Barnyard', ground:['#9fe07a','#8fd26a'],mix:{chick:3,cat:2,dog:2,sheep:3,pig:2,cow:2,horse:1,fence:2,hay:1,silo:0.5,barn:0.5}},
+ {name:'Vineyard', ground:['#c8d880','#b8ca70'],mix:{cat:3,dog:2,goat:3,sheep:2,horse:1,cow:1,grapes:4,fence:2,wagon:1,barn:0.4}},
+ {name:'Snowy Farm',ground:['#eef4ff','#dde8f8'],mix:{sheep:4,dog:3,cat:2,goat:2,horse:1,cow:1,snowball:4,pine:2,hay:1,silo:0.4}},
+ {name:'Night Farm',ground:['#4a7a6a','#3f6c5e'],night:true,mix:{cat:4,dog:3,sheep:2,pig:2,cow:1,horse:1,lantern:3,hay:1,tractor:1,barn:0.4}},
+ {name:'Harvest Fair',ground:['#ffd98a','#f5cc78'],mix:{chick:2,cat:3,dog:3,pig:2,sheep:2,cow:1,horse:1,balloon:4,pumpkin:2,wagon:1,tractor:0.6,barn:0.4}},
+ {name:'Giant Ranch',ground:['#b8e070','#a8d260'],mix:{dog:3,cat:2,sheep:3,goat:2,pig:2,cow:2,horse:2,hay:2,tree:1,tractor:1,silo:0.6,barn:0.6}},
+];
+const TUNING={ // [easiest, hardest-cap]
+ time:[60,95], clearPct:[60,74], sizeFrac:[0.55,0.72], density:[1/8500,1/6500],
+ mapSize:[700,1350], farmerSpeed:[55,105], farmerStun:[0.8,1.4], farmerCool:[3.2,2.0],
+};
+const LEVEL_OVERRIDES={};
+function generateLevels(from,to){const out=[],lerp=(a,t)=>a[0]+(a[1]-a[0])*Math.max(0,Math.min(1,t));
+  for(let n=from;n<=to;n++){if(LEVEL_OVERRIDES[n]){out.push(LEVEL_OVERRIDES[n]);continue}
+    const w=Math.floor((n-1)/10),th=THEMES[w%THEMES.length],inW=(n-1)%10,bonus=n%10===0;
+    // smooth ramp with a small plateau at the start of each world, breather on bonus levels
+    let d=Math.min(1,((n-1)/99)*0.9+Math.min(inW,7)/7*0.1-(inW<2?0.03:0));if(bonus)d*=0.55;
+    let seed=n*7919;const rn=()=>((seed=Math.imul(seed^seed>>>13,1274126177)+12345>>>0)/4294967296);
+    const W=Math.round(lerp(TUNING.mapSize,d)/10)*10,H=Math.round(W*1.2/10)*10;
+    const count=Math.round(W*H*lerp(TUNING.density,d)*(bonus?1.3:1));
+    let mix=Object.entries(th.mix);if(bonus)mix=mix.filter(([k])=>OBJECT_TYPES[k].shape==='animal'&&OBJECT_TYPES[k].size<20);
+    const tw=mix.reduce((a,[,v])=>a+v,0),spawn=mix.map(([k,v])=>[k,Math.max(1,Math.round(count*v/tw*(0.85+rn()*0.3)))]);
+    const sizeGoal=!bonus&&(n%3===0);let goal;
+    if(sizeGoal){const mass=spawn.reduce((a,[k,c])=>a+c*OBJECT_TYPES[k].size**2,0);
+      goal={type:'size',r:Math.round(Math.sqrt(256+0.09*mass*lerp(TUNING.sizeFrac,d)))}}
+    else goal={type:'clear',pct:Math.round(lerp(TUNING.clearPct,d))};
+    out.push({name:(bonus?'★ Bonus: ':'')+th.name+' '+(inW+1),world:w,theme:th.name,night:!!th.night,bonus,
+      time:Math.round(lerp(TUNING.time,d)*(bonus?1.2:1)),goal,size:[W,H],ground:th.ground,spawn,
+      farmer:Math.round(lerp(TUNING.farmerSpeed,d)),farmerStun:+lerp(TUNING.farmerStun,d).toFixed(2),farmerCool:+lerp(TUNING.farmerCool,d).toFixed(2)})}
+  return out}
 /* ===================== DATA: levels ===================== */
 const LEVELS=[
- {name:'Sunny Meadow',time:60,goal:{type:'clear',pct:60},size:[700,900],ground:['#9be86a','#8bdc5a'],spawn:[['chick',14],['duck',10],['cat',14],['dog',10],['sheep',8],['crop',14],['pumpkin',6]],farmer:55},
+ {theme:'Meadow',name:'Sunny Meadow',time:60,goal:{type:'clear',pct:60},size:[700,900],ground:['#9be86a','#8bdc5a'],spawn:[['chick',14],['duck',10],['cat',14],['dog',10],['sheep',8],['crop',14],['pumpkin',6]],farmer:55},
  {name:'Duck Pond Patch',time:70,goal:{type:'clear',pct:65},size:[800,1000],ground:['#a7ea6a','#97dc5a'],spawn:[['duck',14],['chick',10],['cat',12],['dog',12],['sheep',10],['pig',8],['crop',12],['fence',10],['hay',6]],farmer:62},
  {name:'Hay Bale Hill',time:80,goal:{type:'size',r:44},size:[900,1100],ground:['#c8e86a','#b8da5a'],spawn:[['cat',14],['dog',14],['sheep',16],['goat',10],['pig',8],['cow',4],['hay',14],['fence',10],['tree',8]],farmer:70},
  {name:'Pumpkin Fields',time:85,goal:{type:'clear',pct:70},size:[950,1150],ground:['#e8d27a','#dcc46a'],spawn:[['cat',16],['dog',14],['sheep',14],['pig',12],['goat',10],['cow',6],['pumpkin',16],['hay',10],['tractor',4],['tree',6]],farmer:78},
  {name:'Big Red Barnyard',time:95,goal:{type:'clear',pct:72},size:[1050,1250],ground:['#9fe07a','#8fd26a'],spawn:[['chick',14],['cat',14],['dog',14],['sheep',16],['pig',10],['cow',10],['horse',6],['fence',14],['hay',10],['tractor',5],['silo',3],['barn',3]],farmer:86},
- {name:'Harvest Festival',time:100,goal:{type:'size',r:72},size:[1150,1400],ground:['#ffd98a','#f5cc78'],spawn:[['cat',16],['dog',16],['sheep',18],['goat',10],['pig',10],['cow',12],['horse',8],['crop',12],['hay',12],['tree',10],['tractor',6],['silo',4],['barn',5]],farmer:95},
+ {name:'Harvest Festival',time:100,goal:{type:'size',r:64},size:[1150,1400],ground:['#ffd98a','#f5cc78'],spawn:[['cat',16],['dog',16],['sheep',18],['goat',10],['pig',10],['cow',12],['horse',8],['crop',12],['hay',12],['tree',10],['tractor',6],['silo',4],['barn',5]],farmer:95},
+ ...generateLevels(7,100), // levels 7-100 come from THEMES + generateLevels below
 ];
 /* ===================== CORE ===================== */
 const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),$=id=>document.getElementById(id);
@@ -307,6 +366,7 @@ function render(){
   for(const o of list){const[sx,sy]=G.toScreen(o.x,o.y);const r=o.size*z;if(sx<-r*3||sx>G.W+r*3||sy<-r*4||sy>G.H+r*3)continue;
     ctx.drawImage(SHADOW,sx-r*1.2+r*0.25,sy-r*0.55,r*2.4,r*1.1);drawObj(o,sx,sy,z,1)}
   G.hook('drawWorld',ctx);
+  if(L.night){const[nx,ny]=G.toScreen(h.x,h.y),ng=ctx.createRadialGradient(nx,ny,hr*1.5,nx,ny,Math.max(G.W,G.H)*0.8);ng.addColorStop(0,'rgba(10,10,50,0)');ng.addColorStop(1,'rgba(10,10,50,.55)');ctx.fillStyle=ng;ctx.fillRect(0,0,G.W,G.H)}
   for(const f of G.fx)f.draw&&f.draw(ctx,f);
   G.hook('drawHud',ctx);
 }
@@ -334,6 +394,7 @@ function frame(now){const dt=Math.min(0.05,(now-last)/1000);last=now;G.t+=dt;
   $('hScore').textContent=G.score||0;$('barFill').style.width=G.L?(G.progress()*100).toFixed(1)+'%':'0';
   requestAnimationFrame(frame)}
 G.step=(sec)=>{for(let t=0;t<sec&&G.state==='play';t+=1/60)update(1/60);render()}; // test helper
+G.stepNoRender=(dt)=>update(dt); // test helper
 /* ---------- input: drag-to-steer (virtual joystick) ---------- */
 cv.addEventListener('pointerdown',e=>{G.input.active=true;G.input.sx=e.clientX;G.input.sy=e.clientY;G.input.x=G.input.y=0;G.hook('userGesture')});
 addEventListener('pointermove',e=>{if(!G.input.active)return;const dx=e.clientX-G.input.sx,dy=e.clientY-G.input.sy,m=Math.hypot(dx,dy),R=60;
@@ -343,9 +404,16 @@ addEventListener('pointerup',()=>{G.input.active=false;G.input.x=G.input.y=0});
 $('bPlay').onclick=()=>{G.hook('userGesture');FEATURES.levelSelect?(G.renderSelect(),G.show('sSelect')):G.startLevel(Math.min(G.save.unlocked,LEVELS.length)-1)};
 $('bBack').onclick=()=>G.show('sMenu');$('bMenu').onclick=()=>{G.state='menu';G.show('sMenu')};
 $('bRetry').onclick=()=>G.startLevel(G.li);$('bNext').onclick=()=>G.startLevel(G.li+1);
-G.renderSelect=()=>{const g=$('lvGrid');g.innerHTML='';LEVELS.forEach((L,i)=>{const b=document.createElement('button');b.className='lv';b.textContent=i+1;
-  b.disabled=i>=G.save.unlocked;const s=G.save.stars[i]||0;if(FEATURES.stars&&!b.disabled)b.innerHTML+='<small>'+'★'.repeat(s)+'☆'.repeat(3-s)+'</small>';
-  b.onclick=()=>G.startLevel(i);g.appendChild(b)})};
+const PER_PAGE=10,PAGES=Math.ceil(LEVELS.length/PER_PAGE);G.page=null;
+G.renderSelect=(p)=>{if(p==null)p=G.page??Math.floor((Math.min(G.save.unlocked,LEVELS.length)-1)/PER_PAGE);G.page=p=Math.max(0,Math.min(PAGES-1,p));
+  const g=$('lvGrid');g.innerHTML='';let got=0;
+  for(let i=p*PER_PAGE;i<Math.min(LEVELS.length,(p+1)*PER_PAGE);i++){const L=LEVELS[i],b=document.createElement('button');b.className='lv'+(L.bonus?' bonus':'');b.textContent=i+1;
+    b.disabled=i>=G.save.unlocked;const s=G.save.stars[i]||0;got+=s;if(FEATURES.stars&&!b.disabled)b.innerHTML+='<small>'+'★'.repeat(s)+'☆'.repeat(3-s)+'</small>';if(b.disabled)b.innerHTML='🔒';
+    b.onclick=()=>G.startLevel(i);g.appendChild(b)}
+  const L0=LEVELS[p*PER_PAGE];$('wTitle').textContent='World '+(p+1)+' · '+(L0.theme||'Meadow');$('wStars').textContent=FEATURES.stars?'★ '+got+' / '+PER_PAGE*3:'';
+  $('wPrev').disabled=p===0;$('wNext').disabled=p===PAGES-1;$('wDots').innerHTML=Array.from({length:PAGES},(_,k)=>'<i'+(k===p?' class="on"':'')+'></i>').join('')};
+$('wPrev').onclick=()=>G.renderSelect(G.page-1);$('wNext').onclick=()=>G.renderSelect(G.page+1);
+{let sx=null;$('sSelect').addEventListener('pointerdown',e=>sx=e.clientX);$('sSelect').addEventListener('pointerup',e=>{if(sx!=null&&Math.abs(e.clientX-sx)>50)G.renderSelect(G.page+(e.clientX<sx?1:-1));sx=null})}
 G.ui={tool(label,fn){const b=document.createElement('button');b.className='ic';b.textContent=label;b.onclick=e=>{e.stopPropagation();fn(b)};$('tools').appendChild(b);return b},
   extra(id){const s=document.createElement('span');s.className='pill';s.id=id;$('hudExtra').appendChild(s);return s}};
 
@@ -357,15 +425,56 @@ if(FEATURES.timer)G.use({
     $('hTime').textContent='⏱ '+Math.ceil(G.timeLeft);$('hTime').style.color=G.timeLeft<10?'#ff5a7a':'#fff'}});
 else $('hTime').style.display='none';
 // --- SOUND ---
+// shared WebAudio context, created on first user tap (mobile autoplay rules)
+G.getAC=()=>{if(!G.ac)try{G.ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}else if(G.ac.state==='suspended')G.ac.resume();return G.ac};
+G.worldOf=(i)=>Math.floor((i??G.li??0)/10);
+// per-world SFX palette: [wave, base pitch, slide, win arpeggio]
+const WORLD_SFX=[['triangle',520,-300,[523,659,784,1046]],['sine',440,-200,[392,494,587,784]],['square',600,-350,[587,740,880,1175]],['triangle',380,-250,[349,440,523,698]],
+ ['sawtooth',460,-280,[440,554,659,880]],['sine',500,-150,[494,622,740,988]],['triangle',900,-500,[1047,1319,1568,2093]],['sine',330,-120,[262,330,392,523]],
+ ['square',560,-400,[659,784,988,1319]],['sawtooth',360,-300,[330,415,494,659]]];
 if(FEATURES.sound){let ac=null,muted=localStorage.getItem('slyescape.mute')==='1';
   const tone=(f,d,type='sine',v=0.15,slide=0)=>{if(muted||!ac)return;const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime;o.type=type;o.frequency.setValueAtTime(f,t);
     if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(30,f+slide),t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(0.001,t+d);o.connect(g).connect(ac.destination);o.start(t);o.stop(t+d)};
   G.sfx=tone;
   G.use({init(G){G.ui.tool(muted?'🔇':'🔊',b=>{muted=!muted;localStorage.setItem('slyescape.mute',muted?'1':'0');b.textContent=muted?'🔇':'🔊'})},
-    userGesture(){if(!ac)try{ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}else if(ac.state==='suspended')ac.resume()},
-    swallow(G,o){tone(500+Math.min(600,(G.combo||1)*60),0.18,'triangle',0.12,-300)},
-    levelEnd(G,r){r.win?[523,659,784,1046].forEach((f,i)=>setTimeout(()=>tone(f,0.2,'square',0.08),i*110)):tone(300,0.5,'sawtooth',0.08,-200)},
+    userGesture(){ac=G.getAC()},
+    swallow(G,o){const P=WORLD_SFX[G.worldOf()%WORLD_SFX.length];tone(P[1]+Math.min(600,(G.combo||1)*60),0.18,P[0],P[0]==='sawtooth'||P[0]==='square'?0.06:0.12,P[2]);if(FEATURES.combos&&G.combo>0&&G.combo%5===0)tone(P[1]*2,0.25,P[0],0.06,P[1])},
+    levelEnd(G,r){const P=WORLD_SFX[G.worldOf()%WORLD_SFX.length];r.win?P[3].forEach((f,i)=>setTimeout(()=>tone(f,0.2,P[0],0.08),i*110)):tone(300,0.5,'sawtooth',0.08,-200)},
     stunned(){tone(200,0.3,'square',0.1,200)},bigBonus(){[784,988,1175,1568].forEach((f,i)=>setTimeout(()=>tone(f,0.15,'triangle',0.12),i*70))}})}
+// --- MUSIC (procedural, per world; boss levels faster + punchier) ---
+if(FEATURES.music){
+  // per world: tempo, root note (Hz), scale (semitones), lead wave, bass wave, feel
+  const SONGS=[{bpm:120,root:262,scale:[0,2,4,7,9],lead:'triangle',bass:'triangle',pluck:true}, // Meadow: banjo-ish pentatonic pluck
+   {bpm:84, root:220,scale:[0,2,4,7,9],lead:'sine',bass:'sine'},                                     // Pond: calm
+   {bpm:110,root:294,scale:[0,2,4,5,7,9,11],lead:'triangle',bass:'triangle',pluck:true},              // Orchard
+   {bpm:100,root:196,scale:[0,3,5,7,10],lead:'square',bass:'triangle'},                                // Pumpkin: spooky-fun minor
+   {bpm:126,root:247,scale:[0,2,4,7,9],lead:'square',bass:'triangle',pluck:true},                     // Barnyard hoedown
+   {bpm:92, root:233,scale:[0,2,4,5,7,9],lead:'sine',bass:'triangle'},                                 // Vineyard waltz-ish
+   {bpm:116,root:523,scale:[0,2,4,7,9],lead:'sine',bass:'triangle',bell:true},                        // Snowy: jingly bells
+   {bpm:72, root:175,scale:[0,3,5,7,10],lead:'sine',bass:'sine'},                                      // Night: mellow
+   {bpm:132,root:277,scale:[0,2,4,5,7,9,11],lead:'square',bass:'triangle',pluck:true},                // Harvest fair
+   {bpm:108,root:208,scale:[0,2,4,7,9],lead:'sawtooth',bass:'triangle'}];                             // Giant ranch
+  const VOL=0.045;let on=localStorage.getItem('slyescape.musicMute')!=='1',master=null,timer=null,next=0,step=0,song=null,pat=null;
+  function makePattern(seed){let x=seed*9301+49297;const r=()=>((x=(x*9301+49297)%233280)/233280);return Array.from({length:32},(_,i)=>i%4===3&&r()<0.5?null:Math.floor(r()*5)+(i%8<4?0:2))}
+  function note(f,t,d,type,v){const ac=G.ac,o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0008,t+d);o.connect(g).connect(master);o.start(t);o.stop(t+d+0.02)}
+  function tick(){const ac=G.ac;if(!ac||!song)return;const spb=60/song.bpm/2; // 8th notes
+    while(next<ac.currentTime+0.25){const sc=song.scale,deg=pat[step%32],bar=Math.floor(step/8)%4,chord=[0,3,4,0][bar]; // simple I-IV-V-I
+      if(deg!=null){const k=deg+chord,f=song.root*2**((sc[k%sc.length]+12*Math.floor(k/sc.length))/12);note(f,next,song.pluck?spb*0.9:spb*1.6,song.lead,song.bell?0.5:0.7);
+        if(song.bell&&step%2===0)note(f*2,next,0.3,'sine',0.25)}
+      if(step%4===0)note(song.root/2*2**(sc[chord%sc.length]/12),next,spb*3,song.bass,0.9);
+      if(song.boss&&step%2===1)note(90,next,0.05,'square',0.35); // upbeat tick for boss levels
+      next+=spb;step++}}
+  function start(){const ac=G.getAC();if(!ac||!on||G.state!=='play'||!G.L)return;stop();
+    master=ac.createGain();master.gain.value=VOL;master.connect(ac.destination);
+    const w=G.worldOf(),base=SONGS[w%SONGS.length];song=Object.assign({},base,G.L.bonus?{bpm:base.bpm*1.3,boss:true,lead:'square'}:{});
+    pat=makePattern(w*31+(G.L.bonus?7:1));step=0;next=ac.currentTime+0.1;timer=setInterval(tick,90);tick()}
+  function stop(){if(timer)clearInterval(timer);timer=null;if(master){const m=master,ac=G.ac;m.gain.setTargetAtTime(0,ac.currentTime,0.05);setTimeout(()=>m.disconnect(),300)}master=null}
+  G.music={start,stop,isOn:()=>on,playing:()=>!!timer,song:()=>song};
+  G.use({init(G){G.ui.tool('🎵',b=>{on=!on;localStorage.setItem('slyescape.musicMute',on?'0':'1');b.textContent='🎵';b.style.opacity=on?1:0.5;on?start():stop()}).style.opacity=on?1:0.5},
+    userGesture(){if(on&&!timer&&G.state==='play')start()},
+    levelStart(){if(G.ac)start()}, // only once audio was unlocked by a tap
+    levelEnd(){stop()}})}
 // --- COMBOS ---
 if(FEATURES.combos)G.use({levelStart(G){G.combo=0;G.comboT=0},update(G,dt){if((G.comboT-=dt)<=0)G.combo=0},
   modifyScore(G,o,p){G.combo=Math.min(10,G.combo+1);G.comboT=1.2;return p*(1+(G.combo-1)*0.25)},
@@ -441,7 +550,7 @@ if(FEATURES.farmer){
       const dir=F.edible?-1:(F.cool>0?-0.4:1); // flee when edible, back off after a catch
       const sp=F.speed*(F.edible?0.8:1);F.x+=dx/d*sp*dt*dir;F.y+=dy/d*sp*dt*dir;if(Math.abs(dx*dir)>1)F.face=dx*dir>0?1:-1;
       F.x=Math.max(20,Math.min(G.L.size[0]-20,F.x));F.y=Math.max(20,Math.min(G.L.size[1]-20,F.y));
-      if(!F.edible&&F.cool<=0&&d<h.r+F.size*0.6){h.stun=1;h.tr=Math.max(16,h.tr*0.93);F.cool=3;G.hook('stunned');
+      if(!F.edible&&F.cool<=0&&d<h.r+F.size*0.6){h.stun=G.L.farmerStun||1;h.tr=Math.max(16,h.tr*0.93);F.cool=G.L.farmerCool||3;G.hook('stunned');
         G.addFx({x:h.x,y:h.y,t:0,life:1,draw(c,f){const[sx,sy]=G.toScreen(f.x,f.y);c.globalAlpha=1-f.t;c.font='900 24px system-ui';c.textAlign='center';c.fillStyle='#fff';c.strokeStyle='#2a0f6b';c.lineWidth=4;c.strokeText('Shoo! 💫',sx,sy-40-f.t*30);c.fillText('Shoo! 💫',sx,sy-40-f.t*30);c.globalAlpha=1}})}},
     swallow(G,o){if(o===F){G.hook('bigBonus');G.addFx({t:0,life:1.5,draw(c,f){c.save();c.globalAlpha=Math.min(1,2*(1-f.t/f.life));c.font='900 34px system-ui';c.textAlign='center';c.fillStyle='#ffe14d';c.strokeStyle='#ff2fa0';c.lineWidth=6;
       c.strokeText('FARMER BONUS!',G.W/2,G.H*0.3);c.fillText('FARMER BONUS!',G.W/2,G.H*0.3);c.font='900 20px system-ui';c.strokeText('+ his '+['sheep','pig','cow'][(G.li||0)%3]+' too!',G.W/2,G.H*0.3+30);c.fillText('+ his '+['sheep','pig','cow'][(G.li||0)%3]+' too!',G.W/2,G.H*0.3+30);c.restore()}})}},
