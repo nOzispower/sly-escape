@@ -98,7 +98,8 @@ const FEATURES={
   boosters:true,     // tap-to-use Magnet booster (costs coins if coins on)
   farmer:true,       // a friendly farmer chases the hole; swallow him late for a bonus
   howToPlay:true,
-  store:true,        // Store: buy extra maps + cosmetic hole skins with coins    // 'How to Play' guide screen from the main menu
+  store:true,
+  loadout:true,      // 'Get Ready' screen before a level: pick hole skin + chaser        // Store: buy extra maps + cosmetic hole skins with coins    // 'How to Play' guide screen from the main menu
   leaderboard:false, // local stub for best scores (swap in a server later)
 };
 /* ===================== STORE PRICES =====================
@@ -107,6 +108,7 @@ const FEATURES={
  Adding a map/hole: add its entry to MAPS / HOLE_SKINS below and a price here. */
 const STORE_ITEMS={
   maps: {space:500,moon:500,ocean:500,minigolf:500,candy:500,dino:500,pirate:500,haunted:500,toys:500,west:500},
+  chasers:{astronaut:300,moonwalker:300,diver:300,groundskeeper:300,candychef:300,explorer:300,captain:300,caretaker:300,soldier:300,sheriff:300,robot:300,ninja:300,pizzachef:300,alien:300,grandma:300,trex:300,werewolf:300,dracula:300},
   holes:{alien:250,frog:250,shark:250,rainbow:250,polka:250,blackhole:250,lava:250,donut:250,monster:250,golden:250},
 };
 /* ===================== DATA: object types ===================== */
@@ -172,7 +174,7 @@ const MAPS=[
   mix:{candy:4,lolly:3,cookie:3,donut:2,gummy:3,cupcake:2,icecream:1,choc:1,cake:0.6,ginger:0.4}},
  {id:'dino',name:'Dinosaur Jungle',icon:'🦕',ground:['#5fb84a','#55aa42'],style:{rows:null,path:['#8a6a3a','#a8844a','#c09a5a'],deco:'ferns',border:['#3a6a2a','#8ac060']},
   music:{bpm:100,root:196,scale:[0,3,5,7,10],lead:'triangle',bass:'triangle',pluck:true},sfx:['square',300,-200,[262,330,392,523]],
-  chaser:{title:'EXPLORER',emoji:'🧭',shirt:'#d8c48a',pants:'#a89060',legs:'#8a7448',boots:'#5a3a1a',hat:'safari',tool:'net',moustache:true,carry:'bronto',carryName:'dino'},
+  chaser:{title:'EXPLORER',emoji:'🧑',shirt:'#d8c48a',pants:'#a89060',legs:'#8a7448',boots:'#5a3a1a',hat:'safari',tool:'net',moustache:true,carry:'bronto',carryName:'dino'},
   objs:[['egg',7,'e:🥚'],['bone',9,'e:🦴'],['lizard',9,'e:🦎',20],['fern',10,'crop','#2f9a3a','#8ac060',14],['raptor',14,'e:🦖',18],['bush',16,'ball','#3a9a3a','#1d6a2a',12],['bronto',28,'e:🦕',10],['palm',30,'tree','#3fae4a','#8a5520',46],['volcano',50,'e:🌋']],
   mix:{egg:3,bone:2,lizard:4,fern:3,raptor:3,bush:2,bronto:1,palm:1,volcano:0.3}},
  {id:'pirate',name:'Pirate Island',icon:'🏴‍☠️',ground:['#f2dc9a','#ead090'],style:{rows:null,path:['#3a9ac8','#4fb6d8','#7acbe8'],deco:'sand',border:['#8a5520','#e0a860']},
@@ -200,6 +202,24 @@ for(const m of MAPS){for(const o of m.objs){const[k,size,sh,a,b,h]=o,id=m.id+'_'
   OBJECT_TYPES[id]=sh.startsWith('e:')?{size,pts:Math.round(size*1.3),shape:'emoji',glyph:sh.slice(2),color:'#ffffff',color2:'#ffffff',h:size,wander:a||0}
    :{size,pts:Math.round(size*1.3),shape:sh,color:a,color2:b,h:h||size}}
   m.chaser.carry=m.id+'_'+m.chaser.carry;m.theme={name:m.name,ground:m.ground,night:!!m.night,mix:Object.fromEntries(Object.entries(m.mix).map(([k,v])=>[m.id+'_'+k,v]))}}
+/* ===================== DATA: chasers =====================
+ Every chaser: look (shirt/pants/legs/boots/skin/hat/bubble/moustache), tool (held while chasing),
+ carry (OBJECT_TYPES id held overhead when fleeing) + carryName. Same mechanics for all — cosmetic only.
+ Map chasers are generated from MAPS (free on their own map, buyable for use anywhere). One entry = one chaser. */
+const CHASERS={};
+OBJECT_TYPES.moonpie={size:16,pts:20,shape:'emoji',glyph:'🥧',color:'#fff',color2:'#fff',h:16,wander:0}; // carried by the werewolf
+const MAP_CHASER_IDS={space:'astronaut',moon:'moonwalker',ocean:'diver',minigolf:'groundskeeper',candy:'candychef',dino:'explorer',pirate:'captain',haunted:'caretaker',toys:'soldier',west:'sheriff'};
+for(const m of MAPS){const id=MAP_CHASER_IDS[m.id];m.chaser.id=id;CHASERS[id]=Object.assign({name:m.chaser.title[0]+m.chaser.title.slice(1).toLowerCase(),fromMap:m.id},m.chaser)}
+Object.assign(CHASERS,{
+ robot:    {moustache:false,name:'Robot',title:'ROBOT',emoji:'🤖',skin:'#c8d0dc',shirt:'#9aa8c8',pants:'#6a7590',legs:'#5a6585',boots:'#3a4560',hat:'antenna',tool:'wrench',carry:'space_satellite',carryName:'satellite'},
+ ninja:    {moustache:false,name:'Ninja',title:'NINJA',emoji:'🥷',shirt:'#2a2a3a',pants:'#2a2a3a',legs:'#1a1a2a',boots:'#1a1a2a',hat:'ninja',tool:'fan',carry:'dino_egg',carryName:'giant egg'},
+ pizzachef:{name:'Pizza Chef',title:'PIZZA CHEF',emoji:'🍕',shirt:'#ffffff',pants:'#e0413a',legs:'#c0303a',boots:'#3a2a1a',hat:'chef',moustache:true,tool:'ladle',carry:'candy_donut',carryName:'mega donut'},
+ alien:    {moustache:false,name:'Alien',title:'ALIEN',emoji:'👽',skin:'#7ae84a',shirt:'#b07aff',pants:'#7a4ad0',legs:'#6a3ac0',boots:'#3a1a7a',hat:'none',bubble:true,tool:'net',carry:'cow',carryName:'cow'},
+ trex:     {moustache:false,name:'T-Rex',title:'T-REX',emoji:'🦖',skin:'#5fcf5a',shirt:'#4fbf4a',pants:'#a8e890',legs:'#3fa83a',boots:'#2f8a2a',hat:'trex',tool:'none',carry:'dino_egg',carryName:'dino egg'},
+ werewolf: {moustache:false,name:'Werewolf',title:'WEREWOLF',emoji:'🐺',skin:'#a0785a',shirt:'#6a4a8a',pants:'#4a5a8a',legs:'#8a6448',boots:'#6a4a30',hat:'wolf',tool:'bone',carry:'moonpie',carryName:'full moon pie'},
+ dracula:  {moustache:false,name:'Dracula',title:'DRACULA',emoji:'🧛',skin:'#ece4f4',shirt:'#2a2a3a',pants:'#1a1a2a',legs:'#1a1a2a',boots:'#111111',hat:'dracula',tool:'candelabra',carry:'haunted_bat',carryName:'bat buddy'},
+ grandma:  {name:'Grandma',title:'GRANDMA',emoji:'👵',shirt:'#ff8ab8',pants:'#b07aff',legs:'#ffcc99',boots:'#7a3a5a',hat:'bun',tool:'broom',carry:'cat',carryName:'kitty'},
+});
 /* ===================== DATA: themes + level generator =====================
  Levels 7-100 are generated (deterministically) from THEMES, one theme per 10
  levels. Edit a theme to restyle a world; edit TUNING to change the curve.
@@ -272,7 +292,7 @@ const LEVELS=[
    All functions get (c,x,y,r,ry,t). Price lives in STORE_ITEMS.holes. */
 const HOLE_SKINS={
  default:{name:'Classic',lip:'#6b4a2a',wall:['#5a3a9a','#1e0a40','#030008'],rim:'#ff4fd8'},
- alien:{name:'Alien',lip:'#2f7a3a',wall:['#6aff8a','#155a2a','#010a03'],rim:'#9aff4a',
+ alien:{moustache:false,name:'Alien',lip:'#2f7a3a',wall:['#6aff8a','#155a2a','#010a03'],rim:'#9aff4a',
   over(c,x,y,r,ry,t){for(const s of[-1,1]){const bx=x+s*r*0.45,by=y-ry*0.9,ex=bx+s*r*0.15+Math.sin(t*3+s)*r*0.06,ey=by-r*0.55+Math.sin(t*4+s)*r*0.05;
    c.strokeStyle='#2b1838';c.lineWidth=Math.max(3,r*0.12);c.beginPath();c.moveTo(bx,by);c.quadraticCurveTo(bx,ey+r*0.2,ex,ey);c.stroke();c.strokeStyle='#7ae84a';c.lineWidth=Math.max(1.5,r*0.07);c.stroke();
    c.fillStyle='#fff';c.strokeStyle='#2b1838';c.lineWidth=2;c.beginPath();c.arc(ex,ey,r*0.16,0,7);c.fill();c.stroke();c.fillStyle='#111';c.beginPath();c.arc(ex+s*r*0.03,ey,r*0.08,0,7);c.fill()}}},
@@ -287,7 +307,10 @@ const HOLE_SKINS={
  rainbow:{name:'Rainbow',lip:'#ffffff',wall:['#7a5aff','#2a0a6a','#05010d'],rim:null,
   over(c,x,y,r,ry,t){for(let i=0;i<6;i++){c.strokeStyle='hsl('+((t*90+i*60)%360)+',95%,60%)';c.lineWidth=2.6;c.beginPath();c.ellipse(x,y,r+1+i*2.4,ry+1+i*2.4*TILT,0,0,7);c.stroke()}}},
  polka:{name:'Polka Dot',lip:'#ff5aa0',wall:['#ffb3d0','#7a1a4a','#0a0206'],rim:'#ffffff',
-  lipFx(c,x,y,r,ry,t){const n=Math.max(8,Math.round(r/4)),cols=['#fff','#ffe14d','#4fe3ff','#7affb0'];for(let i=0;i<n;i++){const a=i/n*Math.PI*2+t*0.6;c.fillStyle=cols[i%4];c.beginPath();c.arc(x+Math.cos(a)*(r+2.5),y+2+Math.sin(a)*(ry+2.5),Math.max(1.6,r*0.07),0,7);c.fill()}}},
+  lipFx(c,x,y,r,ry,t){c.strokeStyle='#ff3d8a';c.lineWidth=Math.max(9,r*0.24);c.beginPath();c.ellipse(x,y+1,r+5,ry+5,0,0,7);c.stroke();
+   const n=Math.max(8,Math.round(r/3.2)),cols=['#ffffff','#ffe14d','#4fe3ff','#7affb0'],dr=Math.max(3.2,r*0.1);c.lineWidth=1.5;c.strokeStyle='#2b1838';
+   for(let i=0;i<n;i++){const a=i/n*Math.PI*2+t*0.6;c.fillStyle=cols[i%4];c.beginPath();c.arc(x+Math.cos(a)*(r+5),y+1+Math.sin(a)*(ry+5),dr,0,7);c.fill();c.stroke()}},
+  inner(c,x,y,r,ry,t){for(let i=0;i<6;i++){const a=i*1.05+t*0.3;c.fillStyle='rgba(255,255,255,.35)';c.beginPath();c.arc(x+Math.cos(a)*r*0.55,y+Math.sin(a)*ry*0.45-ry*0.2,Math.max(2.5,r*0.08),0,7);c.fill()}}},
  blackhole:{name:'Black Hole',lip:'#120822',wall:['#2a1a5a','#05010d','#000000'],rim:'#ff9a3a',
   inner(c,x,y,r,ry,t){c.lineWidth=Math.max(1.5,r*0.06);for(let arm=0;arm<3;arm++){c.strokeStyle=['rgba(160,120,255,.7)','rgba(255,140,220,.6)','rgba(120,200,255,.6)'][arm];c.beginPath();
     for(let k=0;k<=30;k++){const q=k/30,a=t*1.5+arm*2.09+q*5,rr=r*(1-q*0.92);k?c.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr*TILT):c.moveTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr*TILT)}c.stroke()}
@@ -331,7 +354,7 @@ const Game={
   state:'menu',W:0,H:0,dpr:1,input:{x:0,y:0,active:false,sx:0,sy:0},auto:null,
   fx:[],t:0,
 };
-const G=Game;window.HG=Game;G.FEATURES=FEATURES;G.LEVELS=LEVELS;G.OBJECT_TYPES=OBJECT_TYPES;G.MAPS=MAPS;G.HOLE_SKINS=HOLE_SKINS;G.STORE_ITEMS=STORE_ITEMS;G.skin=_skinSel;
+const G=Game;window.HG=Game;G.FEATURES=FEATURES;G.LEVELS=LEVELS;G.OBJECT_TYPES=OBJECT_TYPES;G.MAPS=MAPS;G.CHASERS=CHASERS;G.HOLE_SKINS=HOLE_SKINS;G.STORE_ITEMS=STORE_ITEMS;G.skin=_skinSel;
 function resize(){G.dpr=Math.min(3,devicePixelRatio||1);G.W=innerWidth;G.H=innerHeight;cv.width=G.W*G.dpr;cv.height=G.H*G.dpr}
 addEventListener('resize',resize);resize();
 function rnd(a,b){return a+Math.random()*(b-a)}
@@ -570,14 +593,15 @@ G.renderSelect=(p)=>{if(p==null)p=G.page??Math.floor((Math.min(G.save.unlocked,F
     const b=document.createElement('button');b.className='btn';b.textContent='🔒 Get in Store';b.onclick=()=>G.store.open('maps');d.appendChild(b);g.appendChild(d)}
   else for(let i=p*PER_PAGE;i<Math.min(LEVELS.length,(p+1)*PER_PAGE);i++){const L=LEVELS[i],b=document.createElement('button');b.className='lv'+(L.bonus?' bonus':'');b.textContent=i%PER_PAGE+1+(m?0:p*PER_PAGE);
     b.disabled=(m?i%PER_PAGE:i)>=unl;const s=G.save.stars[i]||0;got+=s;if(FEATURES.stars&&!b.disabled)b.innerHTML+='<small>'+'★'.repeat(s)+'☆'.repeat(3-s)+'</small>';if(b.disabled)b.innerHTML='🔒';
-    b.onclick=()=>G.startLevel(i);g.appendChild(b)}
+    b.onclick=()=>G.playLevel(i);g.appendChild(b)}
   $('wTitle').textContent=m?(m.icon+' '+m.name):('World '+(p+1)+' · '+(LEVELS[p*PER_PAGE].theme||'Meadow'));$('wStars').textContent=!owned?'Map · not owned':FEATURES.stars?'★ '+got+' / '+PER_PAGE*3:'';
   $('wPrev').disabled=p===0;$('wNext').disabled=p===PAGES-1;$('wDots').innerHTML=Array.from({length:PAGES},(_,k)=>'<i'+(k===p?' class="on"':'')+(k>=FARM_PAGES?' style="border-radius:2px"':'')+'></i>').join('')};
+G.playLevel=i=>G.loadout?G.loadout.open(i):G.startLevel(i);
 G.mapThumb=(m,w,h)=>{const c=document.createElement('canvas'),d=Math.min(3,devicePixelRatio||1);c.width=w*d;c.height=h*d;c.style.cssText='width:'+w+'px;height:'+h+'px;border-radius:14px;border:3px solid #fff8;position:static;display:block';
   const x=c.getContext('2d');x.scale(d,d);x.fillStyle=m.ground[0];x.fillRect(0,0,w,h);x.fillStyle=m.ground[1];for(let y=0;y<h;y+=24)x.fillRect(0,y,w,12);
   let sd=m.id.length*17;const rn=()=>((sd=(sd*9301+49297)%233280)/233280);const ems=m.objs.filter(o=>o[2].startsWith('e:'));
   for(let i=0;i<7;i++){const o=ems[i%ems.length],sz=12+o[1]*0.5;x.drawImage(emojiSprite(o[2].slice(2)),rn()*(w-sz),10+rn()*(h-sz-14),sz,sz)}
-  x.drawImage(emojiSprite(m.chaser.emoji),w-46,h-46,40,40);x.fillStyle='rgba(0,0,0,.45)';x.fillRect(0,0,w,22);x.fillStyle='#fff';x.font='900 13px system-ui';x.fillText(m.icon+' '+m.name,6,15);return c};
+  if(G.drawChaserIcon){x.save();x.translate(w-26,h-4);x.lineJoin='round';G.drawChaserIcon(x,m.chaser,Math.min(18,h*0.16),Math.min(30,h*0.27));x.restore()}else x.drawImage(emojiSprite(m.chaser.emoji),w-46,h-46,40,40);x.fillStyle='rgba(0,0,0,.45)';x.fillRect(0,0,w,22);x.fillStyle='#fff';x.font='900 13px system-ui';x.fillText(m.icon+' '+m.name,6,15);return c};
 $('wPrev').onclick=()=>G.renderSelect(G.page-1);$('wNext').onclick=()=>G.renderSelect(G.page+1);
 {let sx=null;$('sSelect').addEventListener('pointerdown',e=>sx=e.clientX);$('sSelect').addEventListener('pointerup',e=>{if(sx!=null&&Math.abs(e.clientX-sx)>50)G.renderSelect(G.page+(e.clientX<sx?1:-1));sx=null})}
 G.ui={tool(label,fn){const b=document.createElement('button');b.className='ic';b.textContent=label;b.onclick=e=>{e.stopPropagation();fn(b)};$('tools').appendChild(b);return b},
@@ -721,6 +745,13 @@ if(FEATURES.farmer){
       c.fillStyle='#ffe14d';c.beginPath();c.roundRect(-r*0.18,top+hh*0.08,r*0.36,r*0.42,r*0.06);c.fill();c.fillStyle='#3a3a4a';c.fillRect(-r*0.22,top+hh*0.05,r*0.44,r*0.08)}
     else if(tool==='flag'){stick(c,L,'#d8dde8',r*0.07);const wv=Math.sin(G.t*8)*r*0.06;c.fillStyle='#ff4a5a';c.beginPath();c.moveTo(0,top);c.lineTo(r*0.55,top+r*0.15+wv);c.lineTo(0,top+r*0.32);c.closePath();c.fill()}
     else if(tool==='spyglass'){c.fillStyle='#8a5520';c.beginPath();c.roundRect(-r*0.1,top-hh*0.05,r*0.2,hh*0.55,r*0.05);c.fill();c.fillStyle='#ffd23f';c.beginPath();c.roundRect(-r*0.14,top-hh*0.12,r*0.28,hh*0.15,r*0.05);c.fill()}
+    else if(tool==='broom'){stick(c,L,'#c98a3e',r*0.09);c.fillStyle='#e8c060';c.beginPath();c.moveTo(-r*0.28,top-r*0.5);c.lineTo(r*0.28,top-r*0.5);c.lineTo(r*0.14,top);c.lineTo(-r*0.14,top);c.closePath();c.fill();c.strokeStyle='#b08a3a';c.lineWidth=1;c.beginPath();for(const k of[-0.15,0,0.15]){c.moveTo(k*r,top-r*0.45);c.lineTo(k*r*0.6,top)}c.stroke()}
+    else if(tool==='fan'){stick(c,L*0.6,'#8a5520',r*0.08);const op=0.9+Math.sin(G.t*10)*0.15;c.fillStyle='#ff4a5a';c.beginPath();c.moveTo(0,top+hh*0.1);c.arc(0,top+hh*0.1,r*0.55,-Math.PI/2-op,-Math.PI/2+op);c.closePath();c.fill();c.strokeStyle='#ffd23f';c.lineWidth=1.2;c.beginPath();for(let k=-2;k<=2;k++){const a=-Math.PI/2+k*op/2.5;c.moveTo(0,top+hh*0.1);c.lineTo(Math.cos(a)*r*0.5,top+hh*0.1+Math.sin(a)*r*0.5)}c.stroke()}
+    else if(tool==='ladle'){stick(c,L*0.85,'#d8dde8',r*0.08);c.fillStyle='#d8dde8';c.beginPath();c.arc(0,top-r*0.1,r*0.22,0,Math.PI);c.closePath();c.fill()}
+    else if(tool==='bone'){c.fillStyle='#fff8e8';c.fillRect(-r*0.06,top,r*0.12,hh*0.4);for(const yy of[top,top+hh*0.4])for(const dx of[-0.09,0.09]){c.beginPath();c.arc(dx*r,yy,r*0.11,0,7);c.fill()}}
+    else if(tool==='candelabra'){stick(c,L*0.7,'#ffd23f',r*0.08);c.strokeStyle=OUTLINE;c.lineWidth=r*0.12;c.beginPath();c.moveTo(-r*0.3,top-r*0.1);c.quadraticCurveTo(0,top+r*0.25,r*0.3,top-r*0.1);c.stroke();c.strokeStyle='#ffd23f';c.lineWidth=r*0.06;c.stroke();
+      for(const dx of[-0.3,0,0.3]){c.fillStyle='#fff';c.fillRect(dx*r-r*0.05,top-r*0.35-(dx?0:r*0.08),r*0.1,r*0.25);c.fillStyle='rgba(255,200,60,.9)';c.beginPath();c.ellipse(dx*r,top-r*0.45-(dx?0:r*0.08)+Math.sin(G.t*20+dx*9)*0.6,r*0.05,r*0.1,0,0,7);c.fill()}}
+    else if(tool==='none'){}
     else if(tool==='lasso'){c.strokeStyle=OUTLINE;c.lineWidth=r*0.12;c.beginPath();c.ellipse(0,top-r*0.1,r*0.45,r*0.2,G.t*4,0,7);c.moveTo(0,top+hh*0.4);c.lineTo(0,top+r*0.1);c.stroke();c.strokeStyle='#d8a85a';c.lineWidth=r*0.07;c.stroke()}}
   function drawHat(c,ch,r,hh){const t=ch.hat,hc=ch.hatCol;
     if(t==='straw'){c.fillStyle='#ffd23f';c.beginPath();c.ellipse(0,-hh*1.08,r*0.8,r*0.2,0,0,7);c.fill();c.beginPath();c.roundRect(-r*0.38,-hh*1.3,r*0.76,hh*0.22,r*0.12);c.fill();c.fillStyle='#e0413a';c.fillRect(-r*0.38,-hh*1.16,r*0.76,hh*0.06)}
@@ -730,10 +761,20 @@ if(FEATURES.farmer){
     else if(t==='safari'){c.fillStyle='#d8c48a';c.beginPath();c.ellipse(0,-hh*1.06,r*0.75,r*0.16,0,0,7);c.fill();c.beginPath();c.arc(0,-hh*1.08,r*0.44,Math.PI,0);c.fill();c.fillStyle='#8a7448';c.fillRect(-r*0.44,-hh*1.12,r*0.88,hh*0.04)}
     else if(t==='chef'){c.fillStyle='#ffffff';c.fillRect(-r*0.34,-hh*1.25,r*0.68,hh*0.18);for(const dx of[-0.25,0,0.25]){c.beginPath();c.arc(dx*r,-hh*1.35,r*0.25,0,7);c.fill()}}
     else if(t==='top'){c.fillStyle='#222';c.beginPath();c.ellipse(0,-hh*1.08,r*0.7,r*0.16,0,0,7);c.fill();c.fillRect(-r*0.34,-hh*1.55,r*0.68,hh*0.48);c.fillStyle='#8a4ad0';c.fillRect(-r*0.34,-hh*1.17,r*0.68,hh*0.07)}
+    else if(t==='antenna'){c.fillStyle='#9aa8c8';c.fillRect(-r*0.36,-hh*1.2,r*0.72,hh*0.12);c.strokeStyle=OUTLINE;c.lineWidth=2;c.beginPath();c.moveTo(0,-hh*1.2);c.lineTo(0,-hh*1.45);c.stroke();c.fillStyle=(G.t*3%1)<0.5?'#ff4a5a':'#ffe14d';c.beginPath();c.arc(0,-hh*1.47,r*0.1,0,7);c.fill()}
+    else if(t==='ninja'){c.fillStyle='#2a2a3a';c.beginPath();c.arc(0,-hh*0.98,r*0.44,Math.PI*0.95,Math.PI*2.05);c.fill();c.fillRect(-r*0.44,-hh*0.84,r*0.88,r*0.22);c.fillStyle='#e0413a';c.fillRect(-r*0.44,-hh*1.06,r*0.88,r*0.1);c.beginPath();c.moveTo(-r*0.44,-hh*1.02);c.lineTo(-r*0.8,-hh*1.0+Math.sin(G.t*12)*r*0.1);c.lineTo(-r*0.44,-hh*0.97);c.fill()}
+    else if(t==='bun'){c.fillStyle='#d8d8e0';c.beginPath();c.arc(0,-hh*1.02,r*0.44,Math.PI,0);c.fill();c.beginPath();c.arc(0,-hh*1.3,r*0.2,0,7);c.fill();c.strokeStyle=OUTLINE;c.lineWidth=1.2;c.beginPath();c.arc(-r*0.15,-hh*0.93,r*0.1,0,7);c.arc(r*0.17,-hh*0.93,r*0.1,0,7);c.stroke()}
+    else if(t==='trex'){c.fillStyle=ch.skin;c.beginPath();c.ellipse(r*0.25,-hh*0.9,r*0.4,r*0.24,0,0,7);c.fill();c.fillStyle='#fff';for(const dx of[0.12,0.26,0.4]){c.beginPath();c.moveTo(dx*r,-hh*0.84);c.lineTo(dx*r+r*0.05,-hh*0.78);c.lineTo(dx*r+r*0.1,-hh*0.84);c.fill()}
+      c.fillStyle='#ffb020';for(const dx of[-0.3,-0.05,0.2]){c.beginPath();c.moveTo(dx*r,-hh*1.08);c.lineTo(dx*r+r*0.1,-hh*1.25);c.lineTo(dx*r+r*0.2,-hh*1.08);c.fill()}}
+    else if(t==='wolf'){c.fillStyle=ch.skin;for(const s of[-1,1]){c.beginPath();c.moveTo(s*r*0.15,-hh*1.08);c.lineTo(s*r*0.38,-hh*1.38);c.lineTo(s*r*0.42,-hh*1.0);c.fill()}c.fillStyle='#ffc8b0';for(const s of[-1,1]){c.beginPath();c.moveTo(s*r*0.22,-hh*1.1);c.lineTo(s*r*0.36,-hh*1.3);c.lineTo(s*r*0.37,-hh*1.06);c.fill()}
+      c.fillStyle=shade(ch.skin,-30);c.beginPath();c.ellipse(r*0.1,-hh*0.82,r*0.24,r*0.12,0,0,7);c.fill();c.fillStyle='#222';c.beginPath();c.arc(r*0.28,-hh*0.84,r*0.06,0,7);c.fill()}
+    else if(t==='dracula'){c.fillStyle='#e0413a';c.beginPath();c.moveTo(-r*0.6,-hh*0.72);c.lineTo(-r*0.5,-hh*1.15);c.lineTo(-r*0.25,-hh*0.78);c.closePath();c.fill();c.beginPath();c.moveTo(r*0.6,-hh*0.72);c.lineTo(r*0.5,-hh*1.15);c.lineTo(r*0.25,-hh*0.78);c.closePath();c.fill();
+      c.fillStyle='#1a1a2a';c.beginPath();c.arc(0,-hh*1.0,r*0.43,Math.PI,0);c.lineTo(r*0.05,-hh*0.98);c.lineTo(0,-hh*0.9);c.lineTo(-r*0.05,-hh*0.98);c.closePath();c.fill();c.fillStyle='#fff';for(const dx of[-0.06,0.06]){c.beginPath();c.moveTo(dx*r-r*0.03,-hh*0.8);c.lineTo(dx*r,-hh*0.74);c.lineTo(dx*r+r*0.03,-hh*0.8);c.fill()}}
     else if(t==='soldier'){c.fillStyle='#222';c.beginPath();c.roundRect(-r*0.34,-hh*1.6,r*0.68,hh*0.55,r*0.1);c.fill();c.fillStyle='#e0413a';c.fillRect(-r*0.34,-hh*1.15,r*0.68,hh*0.07);c.fillStyle='#ffd23f';c.beginPath();c.arc(0,-hh*1.6,r*0.1,0,7);c.fill()}}
-  let F=null;G.drawFarmerIcon=x=>FT.draw(x,{face:1},17,28,1);
+  let F=null;G.drawFarmerIcon=x=>FT.draw(x,{face:1},17,28,1);G.drawChaserIcon=(x,ch,r=17,hh=28)=>FT.draw(x,{face:1,ch},r,hh,1);
+  G.chaserFor=L=>{const id=G.save.chaser;return(FEATURES.store&&id&&id!=='default'&&CHASERS[id]&&G.store&&G.store.owns('chasers',id))?CHASERS[id]:(L.chaser||null)};
   G.use({
-    levelStart(G,L){F={id:'farmer',T:FT,size:FT.size,x:40,y:40,noCount:true,noEat:true,pts:FT.pts,cool:2,speed:L.farmer||60,edible:false,ch:L.chaser||null};G.objs.push(F)},
+    levelStart(G,L){F={id:'farmer',T:FT,size:FT.size,x:40,y:40,noCount:true,noEat:true,pts:FT.pts,cool:2,speed:L.farmer||60,edible:false,ch:G.chaserFor(L)};G.objs.push(F)},
     update(G,dt){if(!F||!G.objs.includes(F)){F=null;return}const h=G.hole;
       const late=G.elapsed>G.L.time*0.5||G.progress()>0.6;F.edible=late&&h.r>FT.size*1.25;F.noEat=!F.edible;
       const dx=h.x-F.x,dy=h.y-F.y,d=Math.hypot(dx,dy)||1;F.cool-=dt;
@@ -744,9 +785,9 @@ if(FEATURES.farmer){
         if(FEATURES.timer&&!G.over){const n=F.catches;G.timeLeft=Math.max(0,G.timeLeft-n);G.timePop('-'+n+'s')}
         G.addFx({x:h.x,y:h.y,t:0,life:1,draw(c,f){const[sx,sy]=G.toScreen(f.x,f.y);c.globalAlpha=1-f.t;c.font='900 24px system-ui';c.textAlign='center';c.fillStyle='#fff';c.strokeStyle='#2a0f6b';c.lineWidth=4;c.strokeText('Shoo! 💫',sx,sy-40-f.t*30);c.fillText('Shoo! 💫',sx,sy-40-f.t*30);c.globalAlpha=1}})}},
     swallow(G,o){if(o===F){G.hook('bigBonus');G.addFx({t:0,life:1.5,draw(c,f){c.save();c.globalAlpha=Math.min(1,2*(1-f.t/f.life));c.font='900 34px system-ui';c.textAlign='center';c.fillStyle='#ffe14d';c.strokeStyle='#ff2fa0';c.lineWidth=6;
-      const ch=G.L.chaser,t1=(ch?ch.title:'FARMER')+' BONUS!',t2='+ the '+(ch?ch.carryName:['sheep','pig','cow'][(G.li||0)%3])+' too!';c.strokeText(t1,G.W/2,G.H*0.3);c.fillText(t1,G.W/2,G.H*0.3);c.font='900 20px system-ui';c.strokeText(t2,G.W/2,G.H*0.3+30);c.fillText(t2,G.W/2,G.H*0.3+30);c.restore()}})}},
+      const ch=F&&F.ch||G.L.chaser,t1=(ch?ch.title:'FARMER')+' BONUS!',t2='+ the '+(ch?ch.carryName:['sheep','pig','cow'][(G.li||0)%3])+' too!';c.strokeText(t1,G.W/2,G.H*0.3);c.fillText(t1,G.W/2,G.H*0.3);c.font='900 20px system-ui';c.strokeText(t2,G.W/2,G.H*0.3+30);c.fillText(t2,G.W/2,G.H*0.3+30);c.restore()}})}},
     modifyGrowth(G,o,a){return o===F?a*0.3:a},
-    drawHud(G,c){if(!F||!F.edible)return;c.font='900 16px system-ui';c.textAlign='center';c.fillStyle='#fff';c.fillText((G.L.chaser?G.L.chaser.emoji:'🧑‍🌾')+' is snackable now! +500',G.W/2,G.H-90)}})}
+    drawHud(G,c){if(!F||!F.edible)return;c.font='900 16px system-ui';c.textAlign='center';c.fillStyle='#fff';c.fillText((F.ch?F.ch.emoji:'🧑‍🌾')+' is snackable now! +500',G.W/2,G.H-90)}})}
 // --- HOW TO PLAY (illustrated guide screen) ---
 if(FEATURES.howToPlay){
   const CARDS=[
@@ -761,8 +802,9 @@ if(FEATURES.howToPlay){
    ['🐑','Turn the tables','Late in a level, once you are big, he panics, grabs an animal and runs. Swallow him and his animal for a <b>+500 FARMER BONUS</b>!'],
    ['🌍','Worlds & bonus levels','10 farm worlds with 10 levels each — meadow to giant ranch. Every 10th level is a gold <b>★ Bonus</b> level with its own upbeat music.'],
    ['🛒','Store','Spend the coins you earn on 10 new themed maps (each with its own chaser) and fun hole skins. Skins are just for looks — no advantage.'],
+   ['🏃','Get Ready & chasers','Tap a level to open <b>Get Ready</b>: pick your hole skin and chaser, then hit Play. Buy extra chasers in the Store and use them on any map — they all play the same.'],
    ['🔊','Sound & music','<b>🔊</b> toggles sound effects, <b>🎵</b> toggles music. Your choice is remembered.'],
-  ].filter(c=>!((c[0]==='⏱️'&&!FEATURES.timer)||(c[0]==='🔥'&&!FEATURES.combos)||(c[0]==='🪙'&&!FEATURES.boosters&&!FEATURES.coins)||((c[0]==='farmer'||c[0]==='🐑')&&!FEATURES.farmer)||(c[0]==='🔊'&&!FEATURES.sound&&!FEATURES.music)||(c[0]==='🛒'&&!FEATURES.store)));
+  ].filter(c=>!((c[0]==='⏱️'&&!FEATURES.timer)||(c[0]==='🔥'&&!FEATURES.combos)||(c[0]==='🪙'&&!FEATURES.boosters&&!FEATURES.coins)||((c[0]==='farmer'||c[0]==='🐑')&&!FEATURES.farmer)||(c[0]==='🔊'&&!FEATURES.sound&&!FEATURES.music)||(c[0]==='🛒'&&!FEATURES.store)||(c[0]==='🏃'&&!FEATURES.loadout)));
   function icon(kind){const c=document.createElement('canvas'),d=Math.min(3,devicePixelRatio||1);c.width=c.height=46*d;const x=c.getContext('2d');x.scale(d,d);
     if(kind==='hole'){const g=x.createLinearGradient(0,10,0,38);g.addColorStop(0,'#5a3a9a');g.addColorStop(1,'#030008');x.fillStyle='#6b4a2a';x.beginPath();x.ellipse(23,26,21,15,0,0,7);x.fill();
       x.fillStyle=g;x.beginPath();x.ellipse(23,25,18,13,0,0,7);x.fill();x.strokeStyle='#ff4fd8';x.lineWidth=3;x.stroke();x.font='16px system-ui';x.fillText('👆',26,16)}
@@ -775,11 +817,11 @@ if(FEATURES.howToPlay){
       b.onclick=()=>{G.hook('userGesture');G.show('sHow');$('sHow').scrollTop=0};$('bHowBack').onclick=()=>G.show('sMenu')}})}
 // --- STORE (maps + cosmetic hole skins, bought with coins only) ---
 if(FEATURES.store){
-  const S=G.save;S.ownedMaps=S.ownedMaps||{};S.ownedHoles=Object.assign({default:true},S.ownedHoles||{});S.hole=S.hole&&HOLE_SKINS[S.hole]?S.hole:'default';S.mapUnlocked=S.mapUnlocked||{};
+  const S=G.save;S.ownedMaps=S.ownedMaps||{};S.ownedHoles=Object.assign({default:true},S.ownedHoles||{});S.hole=S.hole&&HOLE_SKINS[S.hole]?S.hole:'default';S.mapUnlocked=S.mapUnlocked||{};S.ownedChasers=S.ownedChasers||{};S.chaser=S.chaser||'default';
   let tab='maps',previews=[],raf=0;
   const css=document.createElement('style');css.textContent=`
 #sStore{justify-content:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;padding:calc(env(safe-area-inset-top) + 16px) 14px 24px;gap:10px}
-.stTabs{display:flex;gap:8px}.stTabs button{border:0;border-radius:14px;padding:9px 22px;font:900 17px system-ui;color:#fff;background:#ffffff22}.stTabs button.on{background:linear-gradient(#ffcf33,#ff8a00);box-shadow:0 4px 0 #b35500}
+.stTabs{display:flex;gap:8px}.stTabs button{border:0;border-radius:14px;padding:9px 13px;font:900 17px system-ui;color:#fff;background:#ffffff22}.stTabs button.on{background:linear-gradient(#ffcf33,#ff8a00);box-shadow:0 4px 0 #b35500}
 .stList{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;max-width:420px}
 .stItem{background:#ffffff1c;border:2px solid #ffffff30;border-radius:16px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:6px}
 .stItem canvas{position:static;width:100%;height:auto;border-radius:12px}.stItem b{font-size:15px}
@@ -790,17 +832,18 @@ if(FEATURES.store){
 #stModal .btn{min-width:0;padding:10px 20px;font-size:18px}
 #stToast{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);background:#ff4a5a;color:#fff;font:900 18px system-ui;padding:12px 18px;border-radius:14px;z-index:10;display:none;box-shadow:0 6px 20px #0008;text-align:center}`;
   document.head.appendChild(css);
-  const scr=document.createElement('div');scr.className='scr';scr.id='sStore';scr.innerHTML='<h2>Store</h2><div class="pill" id="stCoins" style="background:#0005;font-weight:900"></div><div class="stTabs"><button data-t="maps">🗺️ Maps</button><button data-t="holes">🕳️ Holes</button></div><div class="stList" id="stList"></div><div class="dim" style="font-size:13px">Earn coins by winning levels. Hole skins are just for looks.</div><button class="btn alt" id="stBack" style="flex-shrink:0">Back</button>';
+  const scr=document.createElement('div');scr.className='scr';scr.id='sStore';scr.innerHTML='<h2>Store</h2><div class="pill" id="stCoins" style="background:#0005;font-weight:900"></div><div class="stTabs"><button data-t="maps">🗺️ Maps</button><button data-t="holes">🕳️ Holes</button><button data-t="chasers">🏃 Chasers</button></div><div class="stList" id="stList"></div><div class="dim" style="font-size:13px">Earn coins by winning levels. Hole skins and chasers are just for looks (✦ = a map&#39;s own chaser, free on its map).</div><button class="btn alt" id="stBack" style="flex-shrink:0">Back</button>';
   document.body.appendChild(scr);
   const modal=document.createElement('div');modal.id='stModal';modal.innerHTML='<div><h2 id="stMT" style="font-size:22px"></h2><div id="stMB"></div><div style="display:flex;gap:10px;justify-content:center"><button class="btn alt" id="stNo">Cancel</button><button class="btn" id="stYes">Buy</button></div></div>';document.body.appendChild(modal);
   const toast=document.createElement('div');toast.id='stToast';document.body.appendChild(toast);
   let back='sMenu';
   G.store={
     price:(kind,id)=>STORE_ITEMS[kind][id],
-    owns:(kind,id)=>kind==='maps'?!!S.ownedMaps[id]:!!S.ownedHoles[id],
-    buy(kind,id){if(this.owns(kind,id))return 'owned';const p=this.price(kind,id);if(p==null)return 'unknown';if(S.coins<p)return 'short';S.coins-=p;(kind==='maps'?S.ownedMaps:S.ownedHoles)[id]=true;G.persist();return 'ok'},
+    owns:(kind,id)=>kind==='maps'?!!S.ownedMaps[id]:kind==='chasers'?(id==='default'||!!S.ownedChasers[id]):!!S.ownedHoles[id],
+    buy(kind,id){if(this.owns(kind,id))return 'owned';const p=this.price(kind,id);if(p==null)return 'unknown';if(S.coins<p)return 'short';S.coins-=p;(kind==='maps'?S.ownedMaps:kind==='chasers'?S.ownedChasers:S.ownedHoles)[id]=true;G.persist();return 'ok'},
     equip(id){if(!S.ownedHoles[id])return false;S.hole=id;G.persist();return true},
-    unlockAll(){MAPS.forEach(m=>S.ownedMaps[m.id]=true);Object.keys(HOLE_SKINS).forEach(k=>S.ownedHoles[k]=true);G.persist()}, // test hook
+    equipChaser(id){if(!this.owns('chasers',id))return false;S.chaser=id;G.persist();return true},
+    unlockAll(){MAPS.forEach(m=>S.ownedMaps[m.id]=true);Object.keys(HOLE_SKINS).forEach(k=>S.ownedHoles[k]=true);Object.keys(CHASERS).forEach(k=>S.ownedChasers[k]=true);G.persist()}, // test hook
     open(t){if(t)tab=t;back=document.querySelector('.scr.on')?.id||'sMenu';if(back==='sStore')back='sMenu';G.show('sStore');render();scr.scrollTop=0},
     toast(msg){toast.textContent=msg;toast.style.display='block';clearTimeout(toast._t);toast._t=setTimeout(()=>toast.style.display='none',1600)},
     confirm(title,body,yes){$('stMT').textContent=title;$('stMB').innerHTML=body;modal.classList.add('on');$('stYes').onclick=()=>{modal.classList.remove('on');yes()};$('stNo').onclick=()=>modal.classList.remove('on')},
@@ -810,23 +853,59 @@ if(FEATURES.store){
       const sk=HOLE_SKINS[id],r=32+Math.sin(t*1.5)*2;drawHoleBase(x,75,56,r,r*TILT,sk,t,false);
       const k=(t*0.8)%1;x.save();x.beginPath();x.ellipse(75,56,r,r*TILT,0,0,7);x.clip();x.globalAlpha=1-k;x.drawImage(emojiSprite('🐔'),62,26+k*30,26*(1-k*0.6),26*(1-k*0.6));x.restore();x.globalAlpha=1;
       drawHoleOver(x,75,56,r,r*TILT,sk,t)});return c}
+  function chaserPreview(id,w=150,h=100,host){const c=document.createElement('canvas'),d=Math.min(2,devicePixelRatio||1);c.width=w*d;c.height=h*d;const x=c.getContext('2d');const ch=id==='default'?null:CHASERS[id];
+    (host||previews).push(t=>{x.setTransform(d,0,0,d,0,0);x.fillStyle='#7a5ad8';x.fillRect(0,0,w,h);x.fillStyle='#8a6ae8';for(let y=0;y<h;y+=20)x.fillRect(0,y,w,10);
+      if(!ch){x.font='900 '+(h*0.18)+'px system-ui';x.textAlign='center';x.fillStyle='#fff';x.fillText('🗺️ Map default',w/2,h*0.45);x.font='700 '+(h*0.12)+'px system-ui';x.fillText('farmer / map chaser',w/2,h*0.68);return}
+      x.save();x.translate(w/2,h-6);x.lineJoin='round';if(G.drawChaserIcon)G.drawChaserIcon(x,ch,h*0.2,h*0.34);else x.drawImage(emojiSprite(ch.emoji),-h*0.3,-h*0.7,h*0.6,h*0.6);x.restore();
+      const T=OBJECT_TYPES[ch.carry];if(T){const im=T.shape==='emoji'?emojiSprite(T.glyph):emojiSprite({cow:'🐄',cat:'🐈'}[ch.carry]||'🎁');x.drawImage(im,6,6,h*0.28,h*0.28);x.font='700 10px system-ui';x.fillStyle='#fff';x.textAlign='left';x.fillText('carries',6,h*0.28+16)}});return c}
+  G.chaserPreview=chaserPreview;G.holePreview=(id,host)=>{const keep=previews;previews=host;const c=holePreview(id);previews=keep;return c};
   function loop(){if(!scr.classList.contains('on')){raf=0;return}const t=performance.now()/1000;previews.forEach(f=>f(t));raf=requestAnimationFrame(loop)}
   function render(){$('stCoins').textContent='🪙 '+S.coins;scr.querySelectorAll('.stTabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
     const list=$('stList');list.innerHTML='';previews=[];
-    const items=tab==='maps'?MAPS.map(m=>({id:m.id,name:m.icon+' '+m.name,view:G.mapThumb(m,150,100)})):Object.entries(HOLE_SKINS).map(([id,sk])=>({id,name:sk.name,view:holePreview(id)}));
+    const items=tab==='maps'?MAPS.map(m=>({id:m.id,name:m.icon+' '+m.name,view:G.mapThumb(m,150,100)})):tab==='chasers'?['default',...Object.keys(CHASERS)].map(id=>({id,name:id==='default'?'Map default':CHASERS[id].name+(CHASERS[id].fromMap?' ✦':''),view:chaserPreview(id)})):Object.entries(HOLE_SKINS).map(([id,sk])=>({id,name:sk.name,view:holePreview(id)}));
     for(const it of items){const d=document.createElement('div');d.className='stItem';d.appendChild(it.view);const nm=document.createElement('b');nm.textContent=it.name;d.appendChild(nm);
       const b=document.createElement('button'),own=G.store.owns(tab,it.id),price=it.id==='default'?0:G.store.price(tab,it.id);
-      if(tab==='holes'&&S.hole===it.id){b.textContent='✓ Equipped';b.className='eq'}else if(own){b.textContent=tab==='holes'?'Equip':'Owned · Play';b.className='owned'}else b.textContent='🪙 '+price;
+      if((tab==='holes'&&S.hole===it.id)||(tab==='chasers'&&S.chaser===it.id)){b.textContent='✓ Equipped';b.className='eq'}else if(own){b.textContent=tab==='maps'?'Owned · Play':'Equip';b.className='owned'}else b.textContent='🪙 '+price;
       b.onclick=()=>{if(tab==='holes'&&own){G.store.equip(it.id);render();return}
+        if(tab==='chasers'&&own){G.store.equipChaser(it.id);render();return}
         if(own){const mi=MAPS.findIndex(m=>m.id===it.id);G.renderSelect(FARM_PAGES+mi);G.show('sSelect');return}
         if(S.coins<price){G.store.toast('Not enough coins! Need 🪙 '+(price-S.coins)+' more.');return}
-        G.store.confirm('Buy '+it.name+'?','Spend <b>🪙 '+price+'</b>? You have 🪙 '+S.coins+'.',()=>{const r=G.store.buy(tab,it.id);if(r==='ok'){if(tab==='holes')G.store.equip(it.id);G.sfx&&G.sfx(880,0.25,'triangle',0.1,400);G.store.toast('Unlocked '+it.name+'!');toast.style.background='#14b35c';setTimeout(()=>toast.style.background='',1700)}render()})};
+        G.store.confirm('Buy '+it.name+'?','Spend <b>🪙 '+price+'</b>? You have 🪙 '+S.coins+'.',()=>{const r=G.store.buy(tab,it.id);if(r==='ok'){if(tab==='holes')G.store.equip(it.id);if(tab==='chasers')G.store.equipChaser(it.id);G.sfx&&G.sfx(880,0.25,'triangle',0.1,400);G.store.toast('Unlocked '+it.name+'!');toast.style.background='#14b35c';setTimeout(()=>toast.style.background='',1700)}render()})};
       d.appendChild(b);list.appendChild(d)}
     if(!raf)raf=requestAnimationFrame(loop)}
   scr.querySelectorAll('.stTabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()});
-  $('stBack').onclick=()=>{back==='sSelect'?(G.renderSelect(),G.show('sSelect')):G.show(back)};
+  $('stBack').onclick=()=>{back==='sSelect'?(G.renderSelect(),G.show('sSelect')):back==='sLoad'&&G.loadout?G.loadout.open(G.loadout.level):G.show(back)};
   G.use({init(G){const b=document.createElement('button');b.className='btn';b.id='bStore';b.textContent='🛒 Store';$('menuExtra').prepend(b);b.onclick=()=>{G.hook('userGesture');G.store.open()}},
     levelEnd(){if(G.coinEl)G.coinEl.textContent='🪙 '+S.coins}})}
+// --- LOADOUT ('Get Ready' screen: choose hole skin + chaser before a level) ---
+if(FEATURES.loadout){
+  const S=G.save;S.hole=S.hole||'default';S.chaser=S.chaser||'default';
+  const css=document.createElement('style');css.textContent=`
+#sLoad{justify-content:flex-start;overflow-y:auto;touch-action:pan-y;padding:calc(env(safe-area-inset-top) + 16px) 12px 22px;gap:10px}
+.ldRow{display:flex;gap:10px;overflow-x:auto;width:100%;max-width:440px;padding:4px 2px 10px;touch-action:pan-x;scroll-snap-type:x mandatory}
+.ldCard{flex:0 0 112px;scroll-snap-align:start;background:#ffffff1c;border:3px solid #ffffff30;border-radius:16px;padding:6px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;font-weight:900;position:relative}
+.ldCard canvas{position:static;width:96px;height:64px;border-radius:10px}.ldCard.sel{border-color:#ffe14d;background:#ffe14d33;box-shadow:0 0 14px #ffe14d88}
+.ldCard.lock{opacity:.5}.ldCard.lock::after{content:'🔒 Get in Store';position:absolute;bottom:6px;left:0;right:0;font-size:11px;color:#ffe14d}
+.ldCard.lock span{visibility:hidden}.ldH{align-self:flex-start;max-width:440px;width:100%;margin:0 auto;font-weight:900;font-size:17px;text-align:left}`;
+  document.head.appendChild(css);
+  const scr=document.createElement('div');scr.className='scr';scr.id='sLoad';scr.innerHTML='<h2>Get Ready!</h2><div id="ldLv" class="dim" style="font-weight:900"></div><div class="ldH">🕳️ Hole</div><div class="ldRow" id="ldHoles"></div><div class="ldH">🏃 Chaser</div><div class="ldRow" id="ldChasers"></div><button class="btn" id="ldPlay" style="font-size:28px;padding:16px 50px;flex-shrink:0">▶ PLAY</button><button class="btn alt" id="ldBack" style="flex-shrink:0">Back</button>';
+  document.body.appendChild(scr);
+  let anim=[],raf=0;
+  function loop(){if(!scr.classList.contains('on')){raf=0;return}const t=performance.now()/1000;anim.forEach(f=>f(t));raf=requestAnimationFrame(loop)}
+  function card(row,view,label,sel,owned,onPick,storeTab){const d=document.createElement('div');d.className='ldCard'+(sel?' sel':'')+(owned?'':' lock');d.appendChild(view);const s=document.createElement('span');s.textContent=label;d.appendChild(s);
+    d.onclick=()=>{if(!owned){if(G.store)G.store.open(storeTab);return}onPick();G.loadout.open(G.loadout.level)};row.appendChild(d)}
+  function simpleHole(id){const c=document.createElement('canvas');c.width=192;c.height=128;const x=c.getContext('2d');anim.push(t=>{x.setTransform(2,0,0,2,0,0);x.fillStyle='#8bdc5a';x.fillRect(0,0,96,64);const sk=HOLE_SKINS[id],r=20;drawHoleBase(x,48,36,r,r*TILT,sk,t,false);drawHoleOver(x,48,36,r,r*TILT,sk,t)});return c}
+  G.loadout={level:0,
+    open(i){this.level=i;anim=[];const L=LEVELS[i];$('ldLv').textContent=(L.map?(L.mapDef.icon+' '):'')+'Level '+(i%10+1+(L.map?0:Math.floor(i/10)*10))+' · '+L.name;
+      const hr=$('ldHoles'),cr=$('ldChasers');hr.innerHTML='';cr.innerHTML='';
+      for(const[id,sk]of Object.entries(HOLE_SKINS)){const own=id==='default'||(G.store&&G.store.owns('holes',id));card(hr,G.holePreview?G.holePreview(id,anim):simpleHole(id),sk.name,S.hole===id,own,()=>{S.hole=id;G.persist()},'holes')}
+      for(const id of ['default',...Object.keys(CHASERS)]){const own=id==='default'||(G.store&&G.store.owns('chasers',id));const ch=CHASERS[id];
+        const view=G.chaserPreview?G.chaserPreview(id,96,64,anim):(()=>{const c=document.createElement('canvas');return c})();
+        card(cr,view,id==='default'?(L.chaser?(CHASERS[L.chaser.id]||{}).name||'Map chaser':'Farmer')+' (default)':ch.name,S.chaser===id,own,()=>{S.chaser=id;G.persist()},'chasers')}
+      G.show('sLoad');if(!raf)raf=requestAnimationFrame(loop);
+      setTimeout(()=>{for(const r of[hr,cr]){const s=r.querySelector('.sel');if(s)r.scrollLeft=s.offsetLeft-r.offsetLeft-10}},0)},
+    play(){G.startLevel(this.level)}};
+  $('ldPlay').onclick=()=>{G.hook('userGesture');G.loadout.play()};$('ldBack').onclick=()=>{G.renderSelect();G.show('sSelect')};}
 // --- LEADERBOARD (local stub; replace save/load with server calls later) ---
 if(FEATURES.leaderboard){const KEY='slyescape.lb';
   G.leaderboard={load:()=>JSON.parse(localStorage.getItem(KEY)||'[]'),submit(name,score,level){const l=this.load();l.push({name,score,level,at:Date.now()});l.sort((a,b)=>b.score-a.score);localStorage.setItem(KEY,JSON.stringify(l.slice(0,20)))}};
