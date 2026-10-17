@@ -91,6 +91,7 @@ const PLAYER_SPEED=0.67;
 const LEVEL_TIME_SCALE=1.45;
 const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fair at the slower PLAYER_SPEED)
 const FEATURES={
+  hiFiGraphics:true, // pseudo-3D renderer: lit/cached sprites, cast shadows, graded ground, parallax sky, caustics, swaying grass (off = flat fallback)
   unlockAll:true,    // TESTING ONLY - set to false before launch. Tester mode: every level/map/head/chaser playable & equippable (real save untouched; flip off = normal locks)
   timer:true,        // countdown per level (off = untimed; finish by reaching goal)
   sound:true,        // WebAudio sound effects (per-world palette) + mute button
@@ -347,7 +348,7 @@ function drawHoleOver(c,x,y,r,ry,sk,t,st,stun){st=st||HEAD_ST;if(st.fx==null)Obj
   c.fillStyle='#ff6f98';c.beginPath();c.ellipse(R*0.35,R*0.06+Math.sin(a)*R*0.25,R*0.38,R*0.1,0.15,0,7);c.fill();
   // --- jaws ---
   const jaw=(up)=>{c.save();if(!up){c.rotate(a);c.scale(1,-1)}
-    c.fillStyle=up?sk.skin:(sk.chin||sk.skin);c.beginPath();c.moveTo(-R*0.15,0);c.lineTo(-R,0);
+    c.fillStyle=up?sk.skin:(sk.chin||sk.skin);if(FEATURES.hiFiGraphics){const sg=Math.sign(fx)||1,gx=-0.4*R*sg,gy=up?-0.6*R:0.2*R,gd=c.createRadialGradient(gx,gy,R*0.1,gx*0.3,gy*0.3,R*(1.5+L));gd.addColorStop(0,shade(up?sk.skin:(sk.chin||sk.skin),up?50:30));gd.addColorStop(0.55,up?sk.skin:(sk.chin||sk.skin));gd.addColorStop(1,shade(up?sk.skin:(sk.chin||sk.skin),-45));c.fillStyle=gd}c.beginPath();c.moveTo(-R*0.15,0);c.lineTo(-R,0);
     if(L<0.06)c.arc(0,0,R,Math.PI,Math.PI*2);else{c.arc(0,0,R,Math.PI,Math.PI*1.62);c.quadraticCurveTo(R*(0.55+L),-R*(up?0.7:0.55),R*(1+L),-R*0.16);c.lineTo(R*(1+L),0)}
     c.closePath();c.fill();oc(c,ow);
     if(!up){c.fillStyle=sk.skin2;c.beginPath();c.ellipse(R*0.25,-R*0.32,R*(0.45+L*0.4),R*0.2,0,0,7);c.fill()}
@@ -408,7 +409,7 @@ function headTick(st,mx,sp,dt){if(mx>0.25)st.dir=1;else if(mx<-0.25)st.dir=-1;st
 
 
 /* ===================== CORE ===================== */
-const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),$=id=>document.getElementById(id);
+const cv=document.getElementById('cv'),$=id=>document.getElementById(id);let ctx=cv.getContext('2d'); // let: hi-fi renderer temporarily retargets drawing into sprite canvases
 const TILT=0.78; // pseudo-3D vertical squash
 const SAVE_KEY='slyescape.v1';
 const Game={
@@ -490,34 +491,38 @@ function update(dt){
 /* ---------- rendering ---------- */
 G.zoom=()=>Math.min(2.2,Math.max(0.55,(Math.min(G.W,G.H)*0.11)/Math.max(16,G.hole.r)*1.3));
 G.toScreen=(x,y)=>{const z=G.zoom();return[(x-G.cam.x)*z+G.W/2,(y-G.cam.y)*z*TILT+G.H*0.55]};
-function shade(c,a){const n=parseInt(c.slice(1),16);let r=n>>16,g=n>>8&255,b=n&255;const f=v=>Math.max(0,Math.min(255,Math.round(v+a)));return'rgb('+f(r)+','+f(g)+','+f(b)+')'}
+function shade(c,a){let r,g,b;if(c[0]==='#'){const n=parseInt(c.slice(1),16);r=n>>16;g=n>>8&255;b=n&255}else{[r,g,b]=(c.match(/\d+/g)||[0,0,0]).map(Number)}const f=v=>Math.max(0,Math.min(255,Math.round(v+a)));return'rgb('+f(r)+','+f(g)+','+f(b)+')'}
 G.shade=shade;
 function drawObj(o,x,y,z,s){ // x,y screen ground point; s scale 0..1
   const T=o.T,r=o.size*z*s,hh=T.h*z*s,c=T.color,c2=T.color2;
   const wob=o.wob?Math.sin(o.wob)*0.08:0;ctx.save();ctx.translate(x,y);ctx.rotate(wob);
   outlineOn(Math.max(1,Math.min(2.6,z*1.5*s)));
+  const HQ=FEATURES.hiFiGraphics,cyl=(col,x0,w)=>{if(!HQ)return col;const g=ctx.createLinearGradient(x0,0,x0+w,0);g.addColorStop(0,shade(col,-20));g.addColorStop(0.28,shade(col,38));g.addColorStop(0.6,col);g.addColorStop(1,shade(col,-55));return g},
+    vgr=(col,y0,h,a=30,b=-40)=>{if(!HQ)return col;const g=ctx.createLinearGradient(0,y0,0,y0+h);g.addColorStop(0,shade(col,a));g.addColorStop(1,shade(col,b));return g};
   if(T.shape==='ball'){const bg=ctx.createRadialGradient(-r*0.35,-r*1.3,r*0.1,0,-r*0.9,r);bg.addColorStop(0,shade(c,50));bg.addColorStop(0.5,c);bg.addColorStop(1,shade(c,-60));
     ctx.fillStyle=bg;ctx.beginPath();ctx.ellipse(0,-r*0.9,r*0.92,r*0.92,0,0,7);ctx.fill();
     ctx.fillStyle='#fff8';ctx.beginPath();ctx.ellipse(-r*0.35,-r*1.3,r*0.25,r*0.18,-0.5,0,7);ctx.fill();
     ctx.fillStyle=c2;ctx.beginPath();ctx.ellipse(r*0.15,-r*1.8,r*0.28,r*0.12,0.5,0,7);ctx.fill()}
-  else if(T.shape==='box'){const w=r*1.5,d=r*1.5*TILT;ctx.fillStyle=shade(c,-50);ctx.fillRect(-w/2,-hh,w,hh);
-    ctx.fillStyle=c;ctx.fillRect(-w/2,-hh-d/2,w,d);ctx.strokeStyle=c2;ctx.lineWidth=Math.max(1,r*0.12);ctx.strokeRect(-w/2,-hh-d/2,w,d);
+  else if(T.shape==='box'){const w=r*1.5,d=r*1.5*TILT;ctx.fillStyle=HQ?vgr(shade(c,-30),-hh,hh,0,-45):shade(c,-50);ctx.fillRect(-w/2,-hh,w,hh);
+    ctx.fillStyle=HQ?vgr(c,-hh-d/2,d,40,-5):c;ctx.fillRect(-w/2,-hh-d/2,w,d);ctx.strokeStyle=c2;ctx.lineWidth=Math.max(1,r*0.12);ctx.strokeRect(-w/2,-hh-d/2,w,d);
     ctx.beginPath();ctx.moveTo(-w/2,-hh-d/2);ctx.lineTo(w/2,-hh+d/2);ctx.stroke()}
   else if(T.shape==='cone'){ctx.fillStyle=shade(c,-30);ctx.fillRect(-r,-r*0.3,r*2,r*0.3);ctx.fillStyle=c;ctx.beginPath();ctx.moveTo(-r*0.7,-r*0.3);ctx.lineTo(0,-hh);ctx.lineTo(r*0.7,-r*0.3);ctx.fill();
     ctx.fillStyle=c2;ctx.fillRect(-r*0.45,-hh*0.55,r*0.9,hh*0.12)}
-  else if(T.shape==='tree'){ctx.fillStyle=c2;ctx.fillRect(-r*0.18,-hh*0.5,r*0.36,hh*0.5);
-    ctx.fillStyle=shade(c,-40);ctx.beginPath();ctx.arc(0,-hh*0.7,r*0.85,0,7);ctx.fill();ctx.fillStyle=c;ctx.beginPath();ctx.arc(-r*0.1,-hh*0.8,r*0.7,0,7);ctx.fill();
+  else if(T.shape==='tree'){ctx.fillStyle=cyl(c2,-r*0.18,r*0.36);ctx.fillRect(-r*0.18,-hh*0.5,r*0.36,hh*0.5);
+    ctx.fillStyle=shade(c,-40);ctx.beginPath();ctx.arc(0,-hh*0.7,r*0.85,0,7);ctx.fill();if(HQ){const g=ctx.createRadialGradient(-r*0.35,-hh*0.95,r*0.05,-r*0.1,-hh*0.8,r*0.8);g.addColorStop(0,shade(c,55));g.addColorStop(0.6,c);g.addColorStop(1,shade(c,-30));ctx.fillStyle=g}else ctx.fillStyle=c;ctx.beginPath();ctx.arc(-r*0.1,-hh*0.8,r*0.7,0,7);ctx.fill();
+    if(HQ){ctx.fillStyle=shade(c,-15);for(const[a,b2,rr]of[[0.45,-0.55,0.32],[-0.5,-0.5,0.28]]){ctx.beginPath();ctx.arc(r*a,-hh*0.7+r*b2*0.3,r*rr,0,7);ctx.fill()}}
     ctx.fillStyle='#fff5';ctx.beginPath();ctx.arc(-r*0.35,-hh*0.95,r*0.2,0,7);ctx.fill()}
   else if(T.shape==='car'){const w=r*1.9,b=r*0.9;ctx.fillStyle=shade(c,-50);ctx.fillRect(-w/2,-hh,w,hh*0.7);
-    ctx.fillStyle=c;ctx.beginPath();ctx.roundRect(-w/2,-hh-b*0.35,w,b*0.8,r*0.2);ctx.fill();
+    ctx.fillStyle=HQ?vgr(c,-hh-b*0.35,b*0.8,40,-25):c;ctx.beginPath();ctx.roundRect(-w/2,-hh-b*0.35,w,b*0.8,r*0.2);ctx.fill();
     ctx.fillStyle='#bfefff';ctx.beginPath();ctx.roundRect(-w*0.25,-hh-b*0.3,w*0.45,b*0.6,r*0.12);ctx.fill();
     ctx.fillStyle='#222';ctx.beginPath();ctx.arc(-w*0.3,-hh*0.25,r*0.22,0,7);ctx.arc(w*0.3,-hh*0.25,r*0.22,0,7);ctx.fill();
     ctx.fillStyle=c2;ctx.fillRect(w/2-r*0.2,-hh-b*0.2,r*0.15,b*0.4)}
-  else if(T.shape==='house'){const w=r*1.6;ctx.fillStyle=shade(c,-40);ctx.fillRect(-w/2,-hh,w,hh);ctx.fillStyle=c;ctx.fillRect(-w/2,-hh,w*0.55,hh);
-    ctx.fillStyle=c2;ctx.beginPath();ctx.moveTo(-w/2-r*0.1,-hh);ctx.lineTo(0,-hh-r*0.8);ctx.lineTo(w/2+r*0.1,-hh);ctx.fill();
+  else if(T.shape==='house'){const w=r*1.6;ctx.fillStyle=HQ?vgr(shade(c,-22),-hh,hh,10,-20):shade(c,-40);ctx.fillRect(-w/2,-hh,w,hh);ctx.fillStyle=HQ?vgr(c,-hh,hh,25,-25):c;ctx.fillRect(-w/2,-hh,w*0.55,hh);
+    ctx.fillStyle=HQ?shade(c2,-30):c2;ctx.beginPath();ctx.moveTo(-w/2-r*0.1,-hh);ctx.lineTo(0,-hh-r*0.8);ctx.lineTo(w/2+r*0.1,-hh);ctx.fill();
+    if(HQ){ctx.fillStyle=shade(c2,30);ctx.beginPath();ctx.moveTo(-w/2-r*0.1,-hh);ctx.lineTo(0,-hh-r*0.8);ctx.lineTo(r*0.05,-hh);ctx.fill();ctx.fillStyle='rgba(20,10,40,.25)';ctx.fillRect(-w/2,-hh,w,r*0.12)}
     ctx.fillStyle='#7a4a20';ctx.fillRect(-r*0.15,-hh*0.45,r*0.3,hh*0.45);ctx.fillStyle='#bfefff';ctx.fillRect(-w*0.4,-hh*0.75,r*0.3,r*0.3);ctx.fillRect(w*0.2,-hh*0.75,r*0.3,r*0.3)}
-  else if(T.shape==='silo'){const w=r*1.1;ctx.fillStyle=shade(c,-35);ctx.fillRect(-w/2,-hh,w,hh);ctx.fillStyle=c;ctx.fillRect(-w/2,-hh,w*0.5,hh);
-    ctx.fillStyle=c2;ctx.beginPath();ctx.arc(0,-hh,w/2,Math.PI,0);ctx.fill();ctx.strokeStyle='#0002';ctx.lineWidth=2;for(let k=1;k<5;k++){ctx.beginPath();ctx.moveTo(-w/2,-hh*k/5);ctx.lineTo(w/2,-hh*k/5);ctx.stroke()}}
+  else if(T.shape==='silo'){const w=r*1.1;if(HQ){ctx.fillStyle=cyl(c,-w/2,w);ctx.fillRect(-w/2,-hh,w,hh)}else{ctx.fillStyle=shade(c,-35);ctx.fillRect(-w/2,-hh,w,hh);ctx.fillStyle=c;ctx.fillRect(-w/2,-hh,w*0.5,hh)}
+    ctx.fillStyle=cyl(c2,-w/2,w);ctx.beginPath();ctx.arc(0,-hh,w/2,Math.PI,0);ctx.fill();ctx.strokeStyle='#0002';ctx.lineWidth=2;for(let k=1;k<5;k++){ctx.beginPath();ctx.moveTo(-w/2,-hh*k/5);ctx.lineTo(w/2,-hh*k/5);ctx.stroke()}}
   else if(T.shape==='crop'){ctx.strokeStyle=c;ctx.lineWidth=Math.max(1.5,r*0.3);for(const a of[-0.5,0,0.5]){ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.sin(a)*r,-hh+Math.abs(a)*r);ctx.stroke()}
     ctx.fillStyle=c2;ctx.beginPath();ctx.ellipse(0,-hh*0.9,r*0.3,r*0.5,0,0,7);ctx.fill()}
   else if(T.shape==='animal')drawAnimal(o,r,hh,c,c2);
@@ -575,6 +580,156 @@ function drawAnimal(o,r,hh,c,c2){const k=o.T.kind,f=o.face||1,walk=o.moving?Math
   if(!bird){ctx.strokeStyle=OUTLINE;ctx.lineWidth=Math.max(1,hr*0.08);ctx.beginPath();ctx.arc(hx+hr*0.15,hy+hr*0.3,hr*0.18,0.3,2.8);ctx.stroke()}
 }
 G.drawObj=drawObj;
+/* ===================== HI-FI GRAPHICS (FEATURES.hiFiGraphics) =====================
+   Pseudo-3D look on plain Canvas 2D. Everything heavy is pre-rendered and cached:
+   - lit object sprites (directional light + rim light + foot AO) cached per type/size/anim-frame (LRU)
+   - matching blurred silhouettes for long cast shadows
+   - per-level ground grading (hills, raised rows, light, saturation, edge AO), sky/parallax backdrop, screen overlay
+   Per frame only: sprite blits, cloud shadows, water caustics, swaying grass, sparkles, glow.
+   Light comes from the upper-left; shadows fall to the lower-right. Turn the flag off for the flat fallback. */
+const GFX=(()=>{
+  const LX=-0.62,LY=-0.78; // light direction (screen), upper-left
+  const SKY={Meadow:'#bfe8ff',Pond:'#bfeaff',Orchard:'#c8ecff','Pumpkin Patch':'#ffe2b0',Barnyard:'#c4e8ff',Vineyard:'#ffe8c4','Snowy Farm':'#e4f0ff','Night Farm':'#1c2452','Harvest Fair':'#ffd8a8','Giant Ranch':'#bfe4ff',
+    space:'#0a0d2a',moon:'#131530',ocean:'#7fd8ff',minigolf:'#bfe8ff',candy:'#ffc4ea',dino:'#cfeea8',pirate:'#9fe4ff',haunted:'#2a1844',toys:'#ffe6c4',west:'#ffd49a'};
+  const NOCLOUD={space:1,moon:1,haunted:1,toys:1},GRASS={tufts:1,ferns:1},TWINKLE={stars:1,sprinkles:1,confetti:1,bubbles:1},GLOWK=/lantern|star|bolt|gem|candle|crystal|ghost|lamp|ufo|potion|torch|firefly|balloon/;
+  const key=L=>L.map||L.theme||'Meadow';
+  const depth=sy=>0.84+0.32*Math.max(0,Math.min(1,sy/(G.H||800)));
+  // static sprites become ImageBitmaps (uploaded to the GPU once instead of every frame)
+  const BM=typeof OffscreenCanvas!=='undefined';const bmp=c=>{if(!BM)return c;try{const o=new OffscreenCanvas(c.width,c.height);o.getContext('2d').drawImage(c,0,0);return o.transferToImageBitmap()}catch(e){return c}};
+  const mk=(w,h)=>{const c=document.createElement('canvas');c.width=Math.max(1,Math.ceil(w));c.height=Math.max(1,Math.ceil(h));return c};
+  function hsl(hex){const n=parseInt(hex.slice(1),16),r=(n>>16)/255,g=(n>>8&255)/255,b=(n&255)/255,mx=Math.max(r,g,b),mn=Math.min(r,g,b),l=(mx+mn)/2,d=mx-mn;if(!d)return[0,0,l];
+    const s=d/(1-Math.abs(2*l-1));let h=mx===r?((g-b)/d)%6:mx===g?(b-r)/d+2:(r-g)/d+4;return[(h*60+360)%360,s,l]}
+  // contact (ambient-occlusion) shadow sprite
+  const AO=(()=>{const c=mk(64,32),x=c.getContext('2d'),g=x.createRadialGradient(32,16,0,32,16,32);g.addColorStop(0,'rgba(20,8,30,.55)');g.addColorStop(0.55,'rgba(20,8,30,.28)');g.addColorStop(1,'rgba(20,8,30,0)');x.setTransform(1,0,0,0.5,0,0);x.fillStyle=g;x.fillRect(0,0,64,64);return bmp(c)})();
+  const GLOW=(()=>{const c=mk(64,64),x=c.getContext('2d'),g=x.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(255,240,170,.85)');g.addColorStop(0.4,'rgba(255,200,120,.3)');g.addColorStop(1,'rgba(255,200,120,0)');x.fillStyle=g;x.fillRect(0,0,64,64);return bmp(c)})();
+  const CLOUD=(()=>{const c=mk(256,160),x=c.getContext('2d');for(const[a,b,r]of[[80,90,62],[130,70,70],[180,92,58],[120,110,55]]){const g=x.createRadialGradient(a,b,0,a,b,r);g.addColorStop(0,'rgba(10,20,50,.5)');g.addColorStop(1,'rgba(10,20,50,0)');x.fillStyle=g;x.fillRect(0,0,256,160)}return bmp(c)})();
+  const CAUSTIC=(()=>{const c=mk(160,160),x=c.getContext('2d');x.strokeStyle='rgba(255,255,255,.9)';x.lineWidth=1.6;x.shadowColor='rgba(255,255,255,1)';x.shadowBlur=4;x.lineJoin='round';let s=7;const rn=()=>((s=s*16807%2147483647)/2147483647);
+    for(let i=0;i<26;i++){const cx=rn()*160,cy=rn()*160,r=10+rn()*18;for(const dx of[-160,0,160])for(const dy of[-160,0,160]){x.beginPath();for(let a=0;a<=6.4;a+=0.35){const rr=r*(0.8+0.3*Math.sin(a*3+i));x.lineTo(cx+dx+Math.cos(a)*rr,cy+dy+Math.sin(a)*rr)}x.stroke()}} // drawn wrapped so the tile is seamless
+    return bmp(c)})();
+  /* ---------- object sprites ---------- */
+  const STAT={builds:0},OPT={headPass:0,fx:1,overlay:1,clouds:1,grass:1,water:1,tw:1,head:1,live:1,cast:1,sprites:1};const CACHE=new Map(),MAXC=420;let gid=1;const SD=()=>Math.min(2,G.dpr||1);
+  const scratch=mk(8,8),sx=scratch.getContext('2d');
+  function frameOf(o){const T=o.T;if(T.shape==='animal'&&o.moving)return 1+Math.floor((((G.t*14+(o.rot||0))/6.2832)%1+1)%1*8);
+    if(T.shape==='emoji'&&T.wander&&o.moving)return 1+Math.floor((((G.t*10+(o.rot||0))/6.2832)%1+1)%1*8);return 0}
+  function bbox(T,r,hh){const S=T.shape;let half,top; // tight per-shape bounds (transparent margins cost fill-rate)
+    if(S==='emoji'){half=1.2*r;top=2.3*r}else if(S==='animal'){half=1.5*r;top=Math.max(2.15*r,hh+0.4*r)}else if(S==='box'){half=0.8*r;top=hh+0.85*r}else if(S==='house'){half=0.95*r;top=hh+0.9*r}
+    else if(S==='silo'){half=0.62*r;top=hh+0.62*r}else if(S==='tree'){half=0.95*r;top=Math.max(hh*0.8+0.9*r,hh)}else if(S==='car'){half=1.05*r;top=hh+0.6*r}else if(S==='ball'){half=1*r;top=2.0*r}else if(S==='cone'){half=1.05*r;top=hh+0.1*r}
+    else if(S==='crop'){half=1.05*r;top=hh+0.6*r}else{half=1.75*r;top=Math.max(hh+r,r*2.5)}
+    return[Math.max(half,1.08*r)+3,top+3,r*0.36+3]}
+  function light(x,w,h,ax,ay,r,top){x.globalCompositeOperation='source-atop';
+    let g=x.createLinearGradient(ax-r*1.1,ay-top,ax+r*1.2,ay);g.addColorStop(0,'rgba(255,248,215,.42)');g.addColorStop(0.42,'rgba(255,248,215,0)');g.addColorStop(0.6,'rgba(40,10,80,0)');g.addColorStop(1,'rgba(40,10,80,.30)');x.fillStyle=g;x.fillRect(0,0,w,h);
+    g=x.createLinearGradient(0,ay-r*0.7,0,ay);g.addColorStop(0,'rgba(20,10,40,0)');g.addColorStop(1,'rgba(20,10,40,.3)');x.fillStyle=g;x.fillRect(0,ay-r*0.7,w,r*0.7+20);x.globalCompositeOperation='source-over'}
+  function rim(c,x,w,h,px){// warm rim light on the edges facing the light
+    if(scratch.width<w||scratch.height<h){scratch.width=Math.max(scratch.width,w);scratch.height=Math.max(scratch.height,h)}
+    sx.setTransform(1,0,0,1,0,0);sx.clearRect(0,0,w,h);sx.globalCompositeOperation='source-over';sx.drawImage(c,0,0);sx.globalCompositeOperation='source-in';sx.fillStyle='rgba(255,250,225,1)';sx.fillRect(0,0,w,h);
+    sx.globalCompositeOperation='destination-out';sx.drawImage(c,-LX*px,-LY*px);sx.globalCompositeOperation='source-over';
+    x.globalCompositeOperation='source-atop';x.globalAlpha=0.8;x.drawImage(scratch,0,0,w,h,0,0,w,h);x.globalAlpha=1;x.globalCompositeOperation='source-over'}
+  function build(o,rq){const T=o.T,sd=SD(),zz=rq/o.size,hh=T.h*zz,[half,top,bot]=bbox(T,rq,hh),w=Math.ceil((half*2)*sd),h=Math.ceil((top+bot)*sd),c=mk(w,h),x=c.getContext('2d');
+    const fr=frameOf(o),saveT=G.t,saveW=o.wob,saveC=ctx;
+    if(fr){const ph=(fr-0.5)/8*6.2832;G.t=T.shape==='animal'?(ph-(o.rot||0))/14:(ph-(o.rot||0))/10}
+    o.wob=0;x.setTransform(sd,0,0,sd,0,0);ctx=x;try{drawObj(o,half,top,zz,1)}finally{ctx=saveC;G.t=saveT;o.wob=saveW}
+    x.setTransform(1,0,0,1,0,0);light(x,w,h,half*sd,top*sd,rq*sd,top*sd);rim(c,x,w,h,Math.max(1.5,rq*0.09*sd));
+    // blurred silhouette for the cast shadow (half res)
+    const s=mk(w/2+8,h/2+8),y=s.getContext('2d');y.shadowColor='rgba(25,10,45,1)';y.shadowBlur=Math.max(2,rq*0.12);y.shadowOffsetX=4000;y.drawImage(c,4-4000,4,w/2,h/2);
+    x.globalCompositeOperation='destination-over';x.drawImage(AO,(half-rq*1.05)*sd,(top-rq*0.34)*sd,rq*2.1*sd,rq*0.68*sd);x.globalCompositeOperation='source-over';
+    return{c:bmp(c),s:bmp(s),half,top,bot,rq}}
+  function sprite(o,rr){const T=o.T;if(!T._gid)T._gid=gid++;const rq=Math.pow(1.07,Math.round(Math.log(Math.max(2,rr))/Math.log(1.07)));
+    const k=T._gid+'|'+o.size+'|'+rq.toFixed(2)+'|'+(o.face||1)+'|'+frameOf(o)+'|'+(o.scared?1:0);let e=CACHE.get(k);
+    if(e){CACHE.delete(k);CACHE.set(k,e);return e}e=build(o,rq);STAT.builds++;CACHE.set(k,e);if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value);return e}
+  const isPlant=T=>T.shape==='tree'||T.shape==='crop'||/tree|pine|palm|cactus|flower|corn|grape|plant|bush|fern|mushroom/.test(T.id||'');
+  function obj(o,sx0,sy0,z){const T=o.T,k=depth(sy0),rr=o.size*z*k,hh=T.h*z*k;if(!OPT.sprites){ctx.drawImage(AO,sx0-rr*1.05,sy0-rr*0.34,rr*2.1,rr*0.68);drawObj(o,sx0,sy0,z*k,1);return}
+    // contact AO + long soft cast shadow
+    if(T.draw){ctx.drawImage(AO,sx0-rr*1.05,sy0-rr*0.34,rr*2.1,rr*0.68);if(OPT.live)live(o,sx0,sy0,z*k,rr,hh);else drawObj(o,sx0,sy0,z*k,1);return}
+    const e=sprite(o,rr),q=rr/e.rq,sway=isPlant(T)?Math.sin(G.t*1.6+o.x*0.013)*0.05:0;
+    if(OPT.cast&&rr>7&&T.shape!=='animal'&&!T.wander&&T.h>o.size*0.7){ctx.save();ctx.translate(sx0,sy0);ctx.globalAlpha=0.32;ctx.transform(q,0,-0.62*q,-0.24*q,0,0);ctx.drawImage(e.s,-e.half,-e.top-0,e.half*2,(e.top+e.bot));ctx.restore()}
+    ctx.save();ctx.translate(sx0,sy0);if(o.wob)ctx.rotate(Math.sin(o.wob)*0.08);if(sway)ctx.transform(1,0,sway,1,0,0);ctx.scale(q,q);ctx.drawImage(e.c,-e.half,-e.top,e.half*2,e.top+e.bot);ctx.restore();
+    if(T._glow===undefined)T._glow=GLOWK.test((T.id||'')+'|'+(T.name||''))||/[⭐🌟💡🏮✨💎⚡🔦🕯🔮👻🛸]/u.test(T.glyph||'');
+    if(T._glow){ctx.save();ctx.globalCompositeOperation='lighter';ctx.globalAlpha=0.35+0.15*Math.sin(G.t*3+o.x);const g=rr*3;ctx.drawImage(GLOW,sx0-g/2,sy0-rr*1.2-g/2,g,g);ctx.restore()}}
+  // animated characters (chasers) are lit live through a scratch canvas
+  const lv=mk(8,8),lx=lv.getContext('2d');
+  function live(o,sx0,sy0,zk,rr,hh){const sd=SD(),[half,top,bot]=bbox(o.T,rr,hh*1.3),w=Math.ceil(half*2*sd),h=Math.ceil((top+bot)*sd);if(lv.width<w||lv.height<h){lv.width=Math.max(lv.width,w);lv.height=Math.max(lv.height,h)}
+    ctx.save();ctx.translate(sx0+rr*0.5,sy0+rr*0.05);ctx.transform(1,0,0.0,1,0,0);ctx.drawImage(AO,-rr*1.6,-rr*0.3,rr*3.2,rr*0.6);ctx.restore();
+    lx.setTransform(1,0,0,1,0,0);lx.clearRect(0,0,w,h);lx.setTransform(sd,0,0,sd,0,0);const saveC=ctx;ctx=lx;try{drawObj(o,half,top,zk,1)}finally{ctx=saveC}
+    lx.setTransform(1,0,0,1,0,0);light(lx,w,h,half*sd,top*sd,rr*sd,top*sd);
+    ctx.drawImage(lv,0,0,w,h,sx0-half,sy0-top,half*2,top+bot)}
+  /* ---------- head lighting ---------- */
+  const hv=mk(8,8),hx=hv.getContext('2d');
+  function head(draw,cx,cy,r){if(!OPT.head||!OPT.headPass){draw(ctx);return}const sd=SD(),S=r*4.6,w=Math.ceil(S*sd),h=Math.ceil(S*sd);if(hv.width<w||hv.height<h){hv.width=Math.max(hv.width,w);hv.height=Math.max(hv.height,h)}
+    hx.setTransform(1,0,0,1,0,0);hx.clearRect(0,0,w,h);hx.setTransform(sd,0,0,sd,(S/2-cx)*sd,(S*0.62-cy)*sd);draw(hx);hx.setTransform(1,0,0,1,0,0);
+    hx.globalCompositeOperation='source-atop';const g=hx.createLinearGradient(w*0.25,h*0.15,w*0.75,h*0.75);g.addColorStop(0,'rgba(255,248,215,.30)');g.addColorStop(0.45,'rgba(255,248,215,0)');g.addColorStop(0.6,'rgba(40,10,80,0)');g.addColorStop(1,'rgba(40,10,80,.30)');hx.fillStyle=g;hx.fillRect(0,0,w,h);hx.globalCompositeOperation='source-over';
+    rim(hv,hx,w,h,Math.max(1.5,r*0.07*sd));
+    ctx.drawImage(hv,0,0,w,h,cx-S/2,cy-S*0.62,S,S)}
+  function headShadow(hx0,hy0,hr){ctx.save();ctx.globalAlpha=0.55;ctx.drawImage(AO,hx0-hr*0.6,hy0-hr*0.25,hr*2.4,hr*0.75);ctx.restore()}
+  /* ---------- ground grading (per level, baked into the ground canvas) ---------- */
+  function grade(g,L,W,H,rn){const ST=L.style||{rows:'furrow'},G0=L.ground[0],flatFloor=ST.rows==='panel'||ST.rows==='boards';
+    // raised rows: lit top edge + shadowed lower edge
+    const band=(y,hgt)=>{let gr=g.createLinearGradient(0,y,0,y+hgt);gr.addColorStop(0,'rgba(255,255,230,.32)');gr.addColorStop(0.18,'rgba(255,255,230,0)');gr.addColorStop(0.8,'rgba(10,30,10,0)');gr.addColorStop(1,'rgba(10,30,10,.28)');g.fillStyle=gr;g.fillRect(0,y,W,hgt+3)};
+    if(ST.rows==='furrow')for(let y=0;y<H;y+=90)band(y,45);else if(ST.rows==='stripes')for(let y=0;y<H;y+=70)band(y,35);
+    // rolling hills / mounds
+    if(!flatFloor)for(let i=0;i<W*H/70000+3;i++){const x=rn()*W,y=rn()*H,R=110+rn()*170;
+      let gr=g.createRadialGradient(x+R*0.25,y+R*0.3,0,x+R*0.25,y+R*0.3,R);gr.addColorStop(0,'rgba(0,25,45,.16)');gr.addColorStop(1,'rgba(0,25,45,0)');g.fillStyle=gr;g.fillRect(x-R,y-R,R*2.6,R*2.6);
+      gr=g.createRadialGradient(x-R*0.15,y-R*0.2,0,x-R*0.15,y-R*0.2,R*0.9);gr.addColorStop(0,'rgba(255,255,215,.20)');gr.addColorStop(1,'rgba(255,255,215,0)');g.fillStyle=gr;g.fillRect(x-R*1.2,y-R*1.2,R*2.2,R*2.2)}
+    // floor sheen for indoor/space floors
+    if(flatFloor){const gr=g.createLinearGradient(0,0,W,H);for(let i=0;i<=8;i++)gr.addColorStop(i/8,i%2?'rgba(255,255,255,.07)':'rgba(255,255,255,0)');g.fillStyle=gr;g.fillRect(0,0,W,H)}
+    // water: deep patches + specular glints
+    if(ST.rows==='waves'){for(let i=0;i<W*H/40000;i++){const x=rn()*W,y=rn()*H,R=80+rn()*140,gr=g.createRadialGradient(x,y,0,x,y,R);gr.addColorStop(0,'rgba(0,40,110,.22)');gr.addColorStop(1,'rgba(0,40,110,0)');g.fillStyle=gr;g.fillRect(x-R,y-R,R*2,R*2)}
+      g.strokeStyle='rgba(255,255,255,.35)';g.lineWidth=2;g.lineCap='round';for(let i=0;i<W*H/6000;i++){const x=rn()*W,y=rn()*H,l=6+rn()*14;g.beginPath();g.moveTo(x,y);g.quadraticCurveTo(x+l/2,y-3,x+l,y);g.stroke()}}
+    // fine texture speckle
+    for(let i=0;i<W*H/500;i++){g.fillStyle=rn()<0.5?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';g.fillRect(rn()*W,rn()*H,2,2)}
+    // directional light across the field
+    let gr=g.createLinearGradient(0,0,W,H);gr.addColorStop(0,'rgba(255,244,200,.20)');gr.addColorStop(0.5,'rgba(255,244,200,0)');gr.addColorStop(1,'rgba(30,0,70,.16)');g.fillStyle=gr;g.fillRect(0,0,W,H);
+    // colour grading: saturation boost toward the ground's own hue
+    const[hu,sa]=hsl(G0);if(sa>0.18){g.globalCompositeOperation='saturation';g.globalAlpha=0.38;g.fillStyle='hsl('+hu.toFixed(0)+',100%,50%)';g.fillRect(0,0,W,H);g.globalAlpha=1;g.globalCompositeOperation='source-over'}
+    else{g.globalCompositeOperation='soft-light';g.fillStyle='rgba(90,120,255,.85)';g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over'}
+    {const gg=g.createLinearGradient(0,0,W*0.4,H);gg.addColorStop(0,'rgba(255,236,170,.55)');gg.addColorStop(1,'rgba(60,70,160,.45)');g.globalCompositeOperation='soft-light';g.fillStyle=gg;g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over'}
+    // edge AO (the map sits slightly sunken inside its border)
+    const E=46;for(const[x0,y0,x1,y1,rx,ry,rw,rh]of[[0,0,0,E,0,0,W,E],[0,H,0,H-E,0,H-E,W,E],[0,0,E,0,0,0,E,H],[W,0,W-E,0,W-E,0,E,H]]){gr=g.createLinearGradient(x0,y0,x1,y1);gr.addColorStop(0,'rgba(20,10,40,.30)');gr.addColorStop(1,'rgba(20,10,40,0)');g.fillStyle=gr;g.fillRect(rx,ry,rw,rh)}}
+  // fence/border post with depth: cast shadow, side, lit cap
+  function post(g,x,y,col){g.fillStyle='rgba(20,10,40,.28)';g.beginPath();g.ellipse(x+5,y+4,6,2.6,0.3,0,7);g.fill();
+    g.fillStyle=shade(col,-25);g.fillRect(x-3,y-8,7,12);g.fillStyle=col;g.fillRect(x-3,y-8,4,12);g.strokeStyle=OUTLINE;g.lineWidth=1;g.strokeRect(x-3,y-8,7,12);
+    g.fillStyle=shade(col,45);g.beginPath();g.ellipse(x+0.5,y-8,3.6,1.8,0,0,7);g.fill();g.stroke()}
+  /* ---------- per-level layers ---------- */
+  let LV=null;
+  function level(L){if(LV&&LV.L===L&&LV.W===G.W&&LV.H===G.H)return LV;const sky=SKY[key(L)]||'#bfe8ff',night=L.night||key(L)==='space'||key(L)==='moon'||key(L)==='haunted';
+    let s=(L.name.length*7919)|0;const rn=()=>((s=(s*16807+11)%2147483647)/2147483647);
+    // screen overlay: depth haze at the top (horizon) + vignette
+    let gr;const rgb=(()=>{const n=parseInt(sky.slice(1),16);return[n>>16,n>>8&255,n&255].join(',')})();
+    // backdrop: sky gradient + two parallax hill layers (seen past the far edge of the map)
+    const bd=mk(900,320),b=bd.getContext('2d');gr=b.createLinearGradient(0,0,0,320);gr.addColorStop(0,night?shade(sky,-10):shade(sky,-35));gr.addColorStop(1,night?shade(sky,25):shade(sky,30));b.fillStyle=gr;b.fillRect(0,0,900,320);
+    if(night)for(let i=0;i<70;i++){b.fillStyle='rgba(255,255,255,'+(0.3+rn()*0.7)+')';b.fillRect(rn()*900,rn()*230,1.6,1.6)}
+    const hills=(col,base,amp,f)=>{b.fillStyle=col;b.beginPath();b.moveTo(0,320);for(let X=0;X<=900;X+=10)b.lineTo(X,base-amp*(0.5+0.5*Math.sin(X/f+base))*(0.7+0.3*Math.sin(X/(f*0.37))));b.lineTo(900,320);b.fill()};
+    const G0=L.ground[0];hills(night?shade(G0,-55):shade(G0,-30),250,70,95);hills(night?shade(G0,-40):shade(G0,-12),300,45,60);const bdB=bmp(bd);
+    // swaying grass + twinkle positions (world coords)
+    const ST=L.style||{deco:'tufts'},grass=[],tw=[];const n=Math.round(L.size[0]*L.size[1]/9000);
+    if(GRASS[ST.deco])for(let i=0;i<n;i++)grass.push([rn()*L.size[0],rn()*L.size[1],0.7+rn()*0.6,rn()*6]);
+    if(TWINKLE[ST.deco]||key(L)==='Snowy Farm')for(let i=0;i<n*0.5;i++)tw.push([rn()*L.size[0],rn()*L.size[1],rn()*6]);
+    const clouds=NOCLOUD[key(L)]||L.night?[]:[0,1].map(i=>[rn(),rn(),0.75+rn()*0.4]);
+    LV={L,W:G.W,H:G.H,ov:null,sky:rgb,bd:bdB,grass,tw,clouds,water:ST.rows==='waves',gcol:[shade(G0,-48),shade(G0,18)]};return LV}
+  function backdrop(L,ax,ay,bx,by,z){const V=level(L);if(ay>0){const px=-(G.cam.x*z*0.35)%900;for(let X=px-900;X<G.W;X+=900)ctx.drawImage(V.bd,X,ay-320+12,900,320)}}
+  let pat=null;
+  function groundFx(L,ax,ay,bx,by,z){if(!OPT.fx)return;const V=level(L);ctx.save();ctx.beginPath();ctx.rect(ax,ay,bx-ax,by-ay);ctx.clip();
+    if(V.water&&OPT.water){if(!pat)pat=ctx.createPattern(CAUSTIC,'repeat');ctx.globalCompositeOperation='lighter';for(const[sp,a,sc]of[[14,0.09,1]]){const m=new DOMMatrix().translateSelf(ax+G.t*sp,ay+G.t*sp*0.4).scaleSelf(z*sc,z*sc*TILT);pat.setTransform(m);ctx.globalAlpha=a;ctx.fillStyle=pat;ctx.fillRect(ax,ay,bx-ax,by-ay)}ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over'}
+    // drifting cloud shadows
+    if(OPT.clouds)for(const[u,v,s]of V.clouds){const W=L.size[0],H=L.size[1],cx=((u*W+G.t*14*s)%(W+700))-350,cy=v*H,[px,py]=G.toScreen(cx,cy),cw=360*s*z,chh=cw*0.62*TILT;if(px+cw/2<0||px-cw/2>G.W||py+chh<0||py-chh>G.H)continue;ctx.globalAlpha=0.18;ctx.drawImage(CLOUD,px-cw/2,py-chh/2,cw,chh)}ctx.globalAlpha=1;
+    // swaying grass tufts
+    if(V.grass.length&&OPT.grass){ctx.lineCap='round';ctx.lineWidth=Math.max(1,1.6*z);for(const[gx,gy,s,ph]of V.grass){const[px,py]=G.toScreen(gx,gy);if(px<-20||px>G.W+20||py<-20||py>G.H+20)continue;const k=depth(py)*z*s*0.55,sw=Math.sin(G.t*2.2+ph+gx*0.01)*3*k;
+      ctx.strokeStyle=V.gcol[0];ctx.beginPath();ctx.moveTo(px-3*k,py);ctx.quadraticCurveTo(px-3*k,py-5*k,px-5*k+sw,py-9*k);ctx.moveTo(px,py);ctx.quadraticCurveTo(px,py-7*k,px+sw,py-13*k);ctx.moveTo(px+3*k,py);ctx.quadraticCurveTo(px+3*k,py-5*k,px+5*k+sw,py-9*k);ctx.stroke();
+      ctx.strokeStyle=V.gcol[1];ctx.beginPath();ctx.moveTo(px+0.6*k,py-3*k);ctx.quadraticCurveTo(px+0.6*k,py-7*k,px+sw+0.6*k,py-11*k);ctx.stroke()}}
+    // twinkles
+    if(V.tw.length&&OPT.tw){ctx.globalCompositeOperation='lighter';for(const[gx,gy,ph]of V.tw){const[px,py]=G.toScreen(gx,gy);if(px<-10||px>G.W+10||py<-10||py>G.H+10)continue;const a=Math.max(0,Math.sin(G.t*2.5+ph*7));if(a<0.2)continue;const s=(0.8+a*1.4)*z*0.8;
+      ctx.fillStyle='rgba(255,255,230,'+(a*0.8).toFixed(2)+')';ctx.beginPath();ctx.moveTo(px,py-s*2);ctx.lineTo(px+s*0.45,py);ctx.lineTo(px,py+s*2);ctx.lineTo(px-s*0.45,py);ctx.closePath();ctx.moveTo(px-s*2,py);ctx.lineTo(px,py+s*0.45);ctx.lineTo(px+s*2,py);ctx.lineTo(px,py-s*0.45);ctx.fill()}ctx.globalCompositeOperation='source-over'}
+    ctx.restore()}
+  function overlay(L){if(!OPT.overlay)return;const V=level(L),W=G.W,H=G.H;
+    if(!V.grads){const sky=V.sky,E=W*0.09;const hz=ctx.createLinearGradient(0,0,0,H*0.24);hz.addColorStop(0,'rgba('+sky+',.62)');hz.addColorStop(0.45,'rgba('+sky+',.22)');hz.addColorStop(1,'rgba('+sky+',0)');
+      const l=ctx.createLinearGradient(0,0,E,0);l.addColorStop(0,'rgba(10,0,30,.28)');l.addColorStop(1,'rgba(10,0,30,0)');const r=ctx.createLinearGradient(W,0,W-E,0);r.addColorStop(0,'rgba(10,0,30,.28)');r.addColorStop(1,'rgba(10,0,30,0)');
+      const bt=ctx.createLinearGradient(0,H,0,H*0.9);bt.addColorStop(0,'rgba(10,0,30,.28)');bt.addColorStop(1,'rgba(10,0,30,0)');V.grads={hz,l,r,bt,E}}
+    const g=V.grads;ctx.fillStyle=g.hz;ctx.fillRect(0,0,W,H*0.24);ctx.fillStyle=g.bt;ctx.fillRect(0,H*0.9,W,H*0.1)} // gradients only where non-empty
+  // adaptive quality: if real frames stay slow, shed the costliest layers (Q2 full -> Q1 no cast shadows/fx -> Q0 no sprites)
+  let Q=2,slow=0,ema=16.7;function frameTime(ms){if(G.GFX.lockQ||!(ms>0)||ms>200)return;ema+=(ms-ema)*0.05;if(ema>21){if(++slow>120&&Q>0){Q--;slow=0;ema=16.7;apply()}}else slow=Math.max(0,slow-2)}
+  function apply(){OPT.cast=OPT.clouds=OPT.water=OPT.grass=OPT.tw=Q>=2?1:0;OPT.sprites=Q>=1?1:0}
+  return{frameTime,get quality(){return Q},set quality(v){Q=v;apply()},STAT,OPT,depth,obj,head,headShadow,grade,post,backdrop,groundFx,overlay,cacheSize:()=>CACHE.size,clear:()=>CACHE.clear()}})();
+G.GFX=GFX;
+
 const EMOJI={};function emojiSprite(g){if(EMOJI[g])return EMOJI[g];const c=document.createElement('canvas');c.width=c.height=96;const x=c.getContext('2d');x.font='78px "Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif';x.textAlign='center';x.textBaseline='middle';
   x.shadowColor='rgba(43,24,56,.9)';x.shadowBlur=0;for(const[dx,dy]of[[2,0],[-2,0],[0,2],[0,-2]]){x.shadowOffsetX=dx;x.shadowOffsetY=dy;x.fillText(g,48,52)}x.shadowColor='transparent';x.fillText(g,48,52);return EMOJI[g]=c}
 G.emojiSprite=emojiSprite;
@@ -583,24 +738,26 @@ function render(){
   if(!G.L)return;const L=G.L,z=G.zoom(),h=G.hole;
   // textured ground (prerendered per level)
   const [ax,ay]=G.toScreen(0,0),[bx,by]=G.toScreen(L.size[0],L.size[1]);
+  const HF=FEATURES.hiFiGraphics;if(HF)GFX.backdrop(L,ax,ay,bx,by,z);
   ctx.fillStyle=shade(L.ground[0],-55);ctx.fillRect(ax-10*z,ay-10*z,bx-ax+20*z,by-ay+30*z);
-  if(!G.groundCv||G.groundFor!==L)buildGround(L);ctx.drawImage(G.groundCv,ax,ay,bx-ax,by-ay);
+  if(!G.groundCv||G.groundFor!==L||G.groundHF!==HF)buildGround(L);ctx.drawImage(G.groundCv,ax,ay,bx-ax,by-ay);if(HF)GFX.groundFx(L,ax,ay,bx,by,z);
   G.hook('drawGround',ctx);
   // hole
-  const[hx,hy]=G.toScreen(h.x,h.y),hr=h.r*z;
-  const ry=hr*TILT;ctx.globalAlpha=0.5;ctx.drawImage(SHADOW,hx-hr*1.1,hy-ry*0.9,hr*2.2,ry*1.8);ctx.globalAlpha=1;
+  const[hx,hy]=G.toScreen(h.x,h.y),hr=h.r*z*(FEATURES.hiFiGraphics?GFX.depth(hy):1);
+  const ry=hr*TILT;if(HF)GFX.headShadow(hx,hy,hr);ctx.globalAlpha=0.5;ctx.drawImage(SHADOW,hx-hr*1.1,hy-ry*0.9,hr*2.2,ry*1.8);ctx.globalAlpha=1;
   // hole: lip, depth wall, animated skin layers (see HOLE_SKINS)
   {const mx=h.x-(h.lx??h.x),my=h.y-(h.ly??h.y);h.lx=h.x;h.ly=h.y;headTick(HEAD_ST,mx,Math.hypot(mx,my),1/60)}
   const sk=G.skin();drawHoleBase(ctx,hx,hy,hr,ry,sk,G.t,h.stun>0);
   // falling objects get pulled into the mouth (drawn just before the head, see y-sort below)
   const drawHead=()=>{const[mx2,my2]=mouthPoint(hx,hy,hr);
     for(const o of G.falling){const[sx,sy]=G.toScreen(o.x,o.y);const k=Math.min(1,o.t/0.45),e=k*k*(3-2*k);ctx.save();ctx.translate(sx+(mx2-sx)*e,sy+(my2-sy)*e-Math.sin(k*Math.PI)*hr*0.3);ctx.rotate(k*Math.PI*(o.face||1)*Math.sign(HEAD_ST.fx));drawObj(o,0,0,z,Math.max(0.05,1-e*0.9));ctx.restore()}
-    drawHoleOver(ctx,hx,hy,hr,ry,sk,G.t,HEAD_ST,h.stun>0)};
+    if(HF)GFX.head(c=>drawHoleOver(c,hx,hy,hr,ry,sk,G.t,HEAD_ST,h.stun>0),hx,hy,hr);else drawHoleOver(ctx,hx,hy,hr,ry,sk,G.t,HEAD_ST,h.stun>0)};
   // objects sorted by y
   const list=G.objs.slice();list.push({_head:true,y:h.y+0.01});list.sort((a,b)=>a.y-b.y);
   for(const o of list){if(o._head){drawHead();continue}const[sx,sy]=G.toScreen(o.x,o.y);const r=o.size*z;if(sx<-r*3||sx>G.W+r*3||sy<-r*4||sy>G.H+r*3)continue;
-    ctx.drawImage(SHADOW,sx-r*1.2+r*0.25,sy-r*0.55,r*2.4,r*1.1);drawObj(o,sx,sy,z,1)}
+    if(HF){GFX.obj(o,sx,sy,z);continue}ctx.drawImage(SHADOW,sx-r*1.2+r*0.25,sy-r*0.55,r*2.4,r*1.1);drawObj(o,sx,sy,z,1)}
   G.hook('drawWorld',ctx);
+  if(HF)GFX.overlay(L);
   if(L.night){const[nx,ny]=G.toScreen(h.x,h.y),ng=ctx.createRadialGradient(nx,ny,hr*1.5,nx,ny,Math.max(G.W,G.H)*0.8);ng.addColorStop(0,'rgba(10,10,50,0)');ng.addColorStop(1,'rgba(10,10,50,.55)');ctx.fillStyle=ng;ctx.fillRect(0,0,G.W,G.H)}
   for(const f of G.fx)f.draw&&f.draw(ctx,f);
   G.hook('drawHud',ctx);
@@ -634,13 +791,14 @@ function buildGround(L){const S=1.5,W=L.size[0],H=L.size[1],c=document.createEle
     if(t<0.75){g.strokeStyle=shade(L.ground[0],-45);g.lineWidth=1.6;g.beginPath();g.moveTo(x-3,y-5);g.lineTo(x,y);g.lineTo(x+1,y-7);g.moveTo(x,y);g.lineTo(x+4,y-5);g.stroke()}
     else if(t<0.9){g.fillStyle=['#fff','#ffe14d','#ff7ab0'][i%3];g.beginPath();g.arc(x,y,2.4,0,7);g.fill();g.fillStyle='#ffb020';g.beginPath();g.arc(x,y,1,0,7);g.fill()}
     else{g.fillStyle='rgba(90,70,50,.35)';g.beginPath();g.ellipse(x,y,3,2,0,0,7);g.fill()}}
+  if(FEATURES.hiFiGraphics)GFX.grade(g,L,W,H,rn);
   // border
   const BD=ST.border||['#8a5520','#e0a860'];g.strokeStyle=BD[0];g.lineWidth=5;g.strokeRect(4,4,W-8,H-8);g.strokeStyle=BD[1];g.lineWidth=2.5;g.strokeRect(4,2,W-8,H-8);
-  if(!L.style||L.style.posts!==false)for(let x=4;x<W;x+=40)for(const y of[4,H-4]){g.fillStyle=shade(BD[0],30);g.fillRect(x-3,y-6,6,10);g.strokeStyle=OUTLINE;g.lineWidth=1;g.strokeRect(x-3,y-6,6,10)}
-  for(let y=4;y<H;y+=40)for(const x of[4,W-4]){g.fillStyle=shade(BD[0],30);g.fillRect(x-3,y-6,6,10);g.strokeRect(x-3,y-6,6,10)}
-  G.groundCv=c;G.groundFor=L}
+  if(!L.style||L.style.posts!==false)for(let x=4;x<W;x+=40)for(const y of[4,H-4]){if(FEATURES.hiFiGraphics){GFX.post(g,x,y,shade(BD[0],30).replace(/rgb\((\d+),(\d+),(\d+)\)/,(m,a,b,c)=>'#'+[a,b,c].map(v=>(+v).toString(16).padStart(2,'0')).join('')));continue}g.fillStyle=shade(BD[0],30);g.fillRect(x-3,y-6,6,10);g.strokeStyle=OUTLINE;g.lineWidth=1;g.strokeRect(x-3,y-6,6,10)}
+  for(let y=4;y<H;y+=40)for(const x of[4,W-4]){if(FEATURES.hiFiGraphics){GFX.post(g,x,y,shade(BD[0],30).replace(/rgb\((\d+),(\d+),(\d+)\)/,(m,a,b,c)=>'#'+[a,b,c].map(v=>(+v).toString(16).padStart(2,'0')).join('')));continue}g.fillStyle=shade(BD[0],30);g.fillRect(x-3,y-6,6,10);g.strokeRect(x-3,y-6,6,10)}
+  G.groundCv=c;G.groundFor=L;G.groundHF=FEATURES.hiFiGraphics}
 let last=performance.now();
-function frame(now){const dt=Math.min(0.05,(now-last)/1000);last=now;G.t+=dt;
+function frame(now){const dt=Math.min(0.05,(now-last)/1000);if(FEATURES.hiFiGraphics&&G.state==='play')GFX.frameTime(now-last);last=now;G.t+=dt;
   if(G.state==='play')update(dt);if(G.state==='play'||G.state==='end')render();
   $('hScore').textContent=G.score||0;$('barFill').style.width=G.L?(G.progress()*100).toFixed(1)+'%':'0';
   requestAnimationFrame(frame)}
