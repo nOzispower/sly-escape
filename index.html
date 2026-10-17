@@ -325,8 +325,8 @@ function oc(c,w){c.strokeStyle=OUTLINE;c.lineWidth=w;c.stroke()}
 // mouth opening for a state (Pac-Man chomp cycle; a gulp snaps it shut)
 function headOpen(st){return Math.max(0.04,st.open*(1-st.chomp*0.9))}
 // ground ring = the swallow zone (radius r): helps players judge what fits
-function drawHoleBase(c,x,y,r,ry,sk,t,stun,st){c.fillStyle='rgba(25,12,40,.30)';c.beginPath();c.ellipse(x,y,r,ry,0,0,7);c.fill();
-  c.save();c.setLineDash([Math.max(3,r*0.18),Math.max(3,r*0.14)]);c.lineDashOffset=-t*12;c.strokeStyle='rgba(255,255,255,.55)';c.lineWidth=Math.max(1.2,r*0.05);c.beginPath();c.ellipse(x,y,r,ry,0,0,7);c.stroke();c.restore()}
+function drawHoleBase(c,x,y,r,ry,sk,t,stun,st){
+  c.save();c.setLineDash([Math.max(3,r*0.18),Math.max(3,r*0.14)]);c.lineDashOffset=-t*12;c.strokeStyle='rgba(255,255,255,.16)';c.lineWidth=Math.max(1.2,r*0.05);c.beginPath();c.ellipse(x,y,r,ry,0,0,7);c.stroke();c.restore()}
 // head centre sits above the ring; mouth point (where food goes)
 function headCenter(x,y,r){return[x,y-r*0.55]}
 function mouthPoint(x,y,r,st){st=st||HEAD_ST;const pf=r*(0.55+((PROFILE[st.id]||{}).L||0)*0.5);return[x+Math.sign(st.fx||1)*pf,y-r*0.55]}
@@ -343,7 +343,7 @@ function drawHoleOver(c,x,y,r,ry,sk,t,st,stun){st=st||HEAD_ST;if(st.fx==null)Obj
   if(sk.ears==='spout')for(let i=0;i<4;i++){const ph=(t*1.2+i/4)%1;c.fillStyle='rgba(140,200,255,'+(0.9-ph*0.8)+')';c.beginPath();c.arc(-R*0.25+(i-1.5)*R*0.12*ph*2,-R*1.05-ph*R*0.7,R*(0.08+ph*0.06),0,7);c.fill()}
   // --- mouth interior ---
   const reach=R*(1+L)*0.93;const g=c.createRadialGradient(0,0,R*0.1,0,0,reach);g.addColorStop(0,sk.wall[2]);g.addColorStop(0.75,sk.wall[1]);g.addColorStop(1,sk.wall[0]);
-  c.fillStyle=g;c.beginPath();c.moveTo(-R*0.1,0);c.arc(0,0,reach,-a,a);c.closePath();c.fill();
+  c.fillStyle=g;c.beginPath();c.moveTo(-R*0.1,0);c.lineTo(Math.cos(a)*reach,-Math.sin(a)*reach);c.lineTo(Math.cos(a)*reach,Math.sin(a)*reach);c.closePath();c.fill(); // straight wedge only (no round disc)
   c.fillStyle='#ff6f98';c.beginPath();c.ellipse(R*0.35,R*0.06+Math.sin(a)*R*0.25,R*0.38,R*0.1,0.15,0,7);c.fill();
   // --- jaws ---
   const jaw=(up)=>{c.save();if(!up){c.rotate(a);c.scale(1,-1)}
@@ -588,7 +588,7 @@ function render(){
   G.hook('drawGround',ctx);
   // hole
   const[hx,hy]=G.toScreen(h.x,h.y),hr=h.r*z;
-  const ry=hr*TILT;ctx.drawImage(SHADOW,hx-hr*1.35,hy-ry*1.2,hr*2.7,ry*2.6);
+  const ry=hr*TILT;ctx.globalAlpha=0.5;ctx.drawImage(SHADOW,hx-hr*1.1,hy-ry*0.9,hr*2.2,ry*1.8);ctx.globalAlpha=1;
   // hole: lip, depth wall, animated skin layers (see HOLE_SKINS)
   {const mx=h.x-(h.lx??h.x),my=h.y-(h.ly??h.y);h.lx=h.x;h.ly=h.y;headTick(HEAD_ST,mx,Math.hypot(mx,my),1/60)}
   const sk=G.skin();drawHoleBase(ctx,hx,hy,hr,ry,sk,G.t,h.stun>0);
@@ -844,13 +844,37 @@ if(FEATURES.farmer){
     else if(t==='soldier'){c.fillStyle='#222';c.beginPath();c.roundRect(-r*0.34,-hh*1.6,r*0.68,hh*0.55,r*0.1);c.fill();c.fillStyle='#e0413a';c.fillRect(-r*0.34,-hh*1.15,r*0.68,hh*0.07);c.fillStyle='#ffd23f';c.beginPath();c.arc(0,-hh*1.6,r*0.1,0,7);c.fill()}}
   let F=null;G.drawFarmerIcon=x=>FT.draw(x,{face:1},17,28,1);G.drawChaserIcon=(x,ch,r=17,hh=28)=>FT.draw(x,{face:1,ch},r,hh,1);
   G.chaserFor=L=>{const id=G.save.chaser;return(FEATURES.store&&id&&id!=='default'&&CHASERS[id]&&G.store&&G.store.owns('chasers',id))?CHASERS[id]:(L.chaser||null)};
+  /* Bonus/flee AI (all chasers): roam the whole map between waypoints kept away from edges (FLEE.margin of map size),
+     biased away from the head, curving paths, sideways dodges when the head is close, edge push back to the open middle.
+     Speed = FLEE.speedVsPlayer x the player's current speed, so he is catchable with effort. */
+  const FLEE={margin:0.12,speedVsPlayer:0.78,dodgeDist:3.2,curve:0.45,turn:5};
+  function flee(G,F,h,dt,d){const W=G.L.size[0],H=G.L.size[1],mx=W*FLEE.margin,my=H*FLEE.margin;F.ft=(F.ft||0)+dt;
+    const pick=()=>{let best=null,bs=-1e9;for(let i=0;i<16;i++){const x=mx+Math.random()*(W-2*mx),y=my+Math.random()*(H-2*my),dh=Math.hypot(x-h.x,y-h.y),df=Math.hypot(x-F.x,y-F.y);
+        // path should not pass close to the head: distance from head to segment F->wp
+        const vx=x-F.x,vy=y-F.y,L2=vx*vx+vy*vy||1,tt=Math.max(0,Math.min(1,((h.x-F.x)*vx+(h.y-F.y)*vy)/L2)),seg=Math.hypot(F.x+vx*tt-h.x,F.y+vy*tt-h.y);
+        const away=((x-F.x)*(F.x-h.x)+(y-F.y)*(F.y-h.y))/((Math.sqrt(L2)||1)*(d||1)); // +1 = straight away from head
+        const sc=away*900*Math.max(0,1-d/900)+dh*0.6+Math.min(seg,h.r*4)*1.2-(seg<h.r*3+110?1500:0)+Math.min(df,Math.max(W,H)*0.45)*0.6-(df<Math.min(W,H)*0.2?400:0);if(sc>bs){bs=sc;best={x,y}}}
+      F.wp=best;F.wpT=0;F.curveS=Math.random()<0.5?-1:1};
+    if(!F.wp)pick();F.wpT+=dt;
+    if(Math.hypot(F.wp.x-F.x,F.wp.y-F.y)<40||F.wpT>4||Math.hypot(F.wp.x-h.x,F.wp.y-h.y)<h.r*2.2||(d<h.r*FLEE.dodgeDist+60&&F.wpT>0.6&&((h.x-F.x)*(F.wp.x-F.x)+(h.y-F.y)*(F.wp.y-F.y))>0))pick(); // re-plan if the head is in the way
+    let ux=F.wp.x-F.x,uy=F.wp.y-F.y,ul=Math.hypot(ux,uy)||1;ux/=ul;uy/=ul;
+    let ax=ux-uy*F.curveS*FLEE.curve*Math.sin(F.ft*1.4),ay=uy+ux*F.curveS*FLEE.curve*Math.sin(F.ft*1.4); // curving path
+    const near=h.r*FLEE.dodgeDist+60;if(d<near){const k=1-d/near,hx=(F.x-h.x)/d,hy=(F.y-h.y)/d;
+      // sideways dodge, toward the side with more open room (closer to centre)
+      let px=-hy,py=hx;if(px*(W/2-F.x)+py*(H/2-F.y)<0){px=-px;py=-py}ax+=(px*1.4+hx*0.7)*k*2;ay+=(py*1.4+hy*0.7)*k*2}
+    // edge push back toward the open middle
+    const ex=F.x<mx?(mx-F.x)/mx:F.x>W-mx?-(F.x-(W-mx))/mx:0,ey=F.y<my?(my-F.y)/my:F.y>H-my?-(F.y-(H-my))/my:0;ax+=ex*7+Math.sign(ex)*0.6;ay+=ey*7+Math.sign(ey)*0.6;
+    const al=Math.hypot(ax,ay)||1,psp=(230+h.r*1.2)*PLAYER_SPEED,sp=psp*FLEE.speedVsPlayer,tr=Math.min(1,dt*FLEE.turn);
+    F.vx=(F.vx||0)+(ax/al*sp-(F.vx||0))*tr;F.vy=(F.vy||0)+(ay/al*sp-(F.vy||0))*tr;F.x+=F.vx*dt;F.y+=F.vy*dt;if(Math.abs(F.vx)>2)F.face=F.vx>0?1:-1}
+  G.FLEE=FLEE;
   G.use({
     levelStart(G,L){F={id:'farmer',T:FT,size:FT.size,x:40,y:40,noCount:true,noEat:true,pts:FT.pts,cool:2,speed:L.farmer||60,edible:false,ch:G.chaserFor(L)};G.objs.push(F)},
     update(G,dt){if(!F||!G.objs.includes(F)){F=null;return}const h=G.hole;
       const late=G.elapsed>G.L.time*0.5||G.progress()>0.6;F.edible=late&&h.r>FT.size*1.25;F.noEat=!F.edible;
       const dx=h.x-F.x,dy=h.y-F.y,d=Math.hypot(dx,dy)||1;F.cool-=dt;
-      const dir=F.edible?-1:(F.cool>0?-0.4:1); // flee when edible, back off after a catch
-      const sp=F.speed*(F.edible?0.8:1);F.x+=dx/d*sp*dt*dir;F.y+=dy/d*sp*dt*dir;if(Math.abs(dx*dir)>1)F.face=dx*dir>0?1:-1;
+      if(F.edible)flee(G,F,h,dt,d);else{F.wp=null;F.vx=F.vy=0;
+      const dir=F.cool>0?-0.4:1; // chase; back off after a catch
+      const sp=F.speed;F.x+=dx/d*sp*dt*dir;F.y+=dy/d*sp*dt*dir;if(Math.abs(dx*dir)>1)F.face=dx*dir>0?1:-1}
       F.x=Math.max(20,Math.min(G.L.size[0]-20,F.x));F.y=Math.max(20,Math.min(G.L.size[1]-20,F.y));
       if(!F.edible&&F.cool<=0&&d<h.r+F.size*0.6){h.stun=G.L.farmerStun||1;F.cool=G.L.farmerCool||3;F.catches=(F.catches||0)+1;if(G.L.bonus||(G.li+1)%10===0)h.tr=Math.max(16,h.tr*0.93);G.hook('stunned');G.hook('farmerCatch',F.catches);
         if(FEATURES.timer&&!G.over){const n=F.catches;G.timeLeft=Math.max(0,G.timeLeft-n);G.timePop('-'+n+'s')}
