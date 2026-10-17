@@ -75,7 +75,7 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 <div id="hudTop"><div class="row"><span class="pill" id="hLv">Lv 1</span><span class="pill" id="hScore">0</span><span class="pill" id="hTime"></span></div>
 <div id="bar"><div id="barFill"></div></div><div class="row" id="hudExtra" style="margin-top:6px"></div></div>
 <div id="tools"></div>
-<div class="scr on" id="sMenu"><canvas id="titleArt" width="440" height="300" style="position:static;width:220px;height:150px;margin-bottom:-14px"></canvas><h1>SLY<br>ESCAPE</h1><div class="dim">Drag to steer your hungry head. Gobble the farm, grow bigger!</div>
+<div class="scr on" id="sMenu"><div id="testBadge" style="display:none;position:absolute;top:12px;left:12px;background:#ff3b6b;color:#fff;font:800 12px system-ui;padding:4px 9px;border-radius:9px;letter-spacing:1px;z-index:5">TEST MODE</div><canvas id="titleArt" width="440" height="300" style="position:static;width:220px;height:150px;margin-bottom:-14px"></canvas><h1>SLY<br>ESCAPE</h1><div class="dim">Drag to steer your hungry head. Gobble the farm, grow bigger!</div>
  <button class="btn" id="bPlay">PLAY</button><div id="menuExtra" style="display:flex;flex-direction:column;gap:12px;align-items:center"></div></div>
 <div class="scr" id="sSelect"><h2>Levels</h2><div class="wnav"><button class="ic" id="wPrev">‹</button><div><div id="wTitle"></div><div id="wStars"></div></div><button class="ic" id="wNext">›</button></div>
  <div class="grid" id="lvGrid"></div><div class="dots" id="wDots"></div><button class="btn alt" id="bBack">Back</button></div>
@@ -86,6 +86,7 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 'use strict';
 /* ===================== FEATURES: flip to true/false ===================== */
 const FEATURES={
+  unlockAll:true,    // TESTING ONLY - set to false before launch. Tester mode: every level/map/head/chaser playable & equippable (real save untouched; flip off = normal locks)
   timer:true,        // countdown per level (off = untimed; finish by reaching goal)
   sound:true,        // WebAudio sound effects (per-world palette) + mute button
   music:true,        // per-world procedural background music + its own mute button
@@ -421,7 +422,8 @@ G.endLevel=function(win){
   if(G.over)return;G.over=true;G.state='end';
   const res={win,score:G.score,level:G.li,stars:win?1:0,msg:''};
   G.hook('levelEnd',res);
-  if(win){if(G.L.map){const mu=G.save.mapUnlocked=G.save.mapUnlocked||{};mu[G.L.map]=Math.max(mu[G.L.map]||1,Math.min(10,G.li%10+2))}else G.save.unlocked=Math.max(G.save.unlocked,Math.min(FARM_LEVELS,G.li+2));
+  if(win){const testOnly=FEATURES.unlockAll&&(G.L.map?!(G.save.ownedMaps||{})[G.L.map]||G.li%10>=((G.save.mapUnlocked||{})[G.L.map]||1):G.li>=G.save.unlocked); // tester mode: don't advance real progress from levels that are only test-unlocked
+    if(testOnly);else if(G.L.map){const mu=G.save.mapUnlocked=G.save.mapUnlocked||{};mu[G.L.map]=Math.max(mu[G.L.map]||1,Math.min(10,G.li%10+2))}else G.save.unlocked=Math.max(G.save.unlocked,Math.min(FARM_LEVELS,G.li+2));
     G.save.best[G.li]=Math.max(G.save.best[G.li]||0,G.score);G.save.stars[G.li]=Math.max(G.save.stars[G.li]||0,res.stars);G.persist()}
   $('eTitle').textContent=win?'LEVEL CLEAR!':(FEATURES.timer?"TIME'S UP!":'TRY AGAIN');
   $('eStars').textContent=FEATURES.stars&&win?'★'.repeat(res.stars)+'☆'.repeat(3-res.stars):'';
@@ -626,7 +628,7 @@ $('bRetry').onclick=()=>G.startLevel(G.li);$('bNext').onclick=()=>G.startLevel(G
 const PER_PAGE=10,FARM_PAGES=FARM_LEVELS/PER_PAGE,PAGES=FARM_PAGES+(FEATURES.store?MAPS.length:0);G.page=null;
 G.renderSelect=(p)=>{if(p==null)p=G.page??Math.floor((Math.min(G.save.unlocked,FARM_LEVELS)-1)/PER_PAGE);G.page=p=Math.max(0,Math.min(PAGES-1,p));
   const g=$('lvGrid');g.innerHTML='';let got=0;const m=p>=FARM_PAGES?MAPS[p-FARM_PAGES]:null,owned=!m||(G.store&&G.store.owns('maps',m.id));
-  const unl=m?((G.save.mapUnlocked||{})[m.id]||1):G.save.unlocked;
+  const unl=FEATURES.unlockAll?(m?PER_PAGE:FARM_LEVELS):m?((G.save.mapUnlocked||{})[m.id]||1):G.save.unlocked;
   if(!owned){const d=document.createElement('div');d.style.cssText='grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:10px';d.appendChild(G.mapThumb(m,240,150));
     const b=document.createElement('button');b.className='btn';b.textContent='🔒 Get in Store';b.onclick=()=>G.store.open('maps');d.appendChild(b);g.appendChild(d)}
   else for(let i=p*PER_PAGE;i<Math.min(LEVELS.length,(p+1)*PER_PAGE);i++){const L=LEVELS[i],b=document.createElement('button');b.className='lv'+(L.bonus?' bonus':'');b.textContent=i%PER_PAGE+1+(m?0:p*PER_PAGE);
@@ -634,6 +636,7 @@ G.renderSelect=(p)=>{if(p==null)p=G.page??Math.floor((Math.min(G.save.unlocked,F
     b.onclick=()=>G.playLevel(i);g.appendChild(b)}
   $('wTitle').textContent=m?(m.icon+' '+m.name):('World '+(p+1)+' · '+(LEVELS[p*PER_PAGE].theme||'Meadow'));$('wStars').textContent=!owned?'Map · not owned':FEATURES.stars?'★ '+got+' / '+PER_PAGE*3:'';
   $('wPrev').disabled=p===0;$('wNext').disabled=p===PAGES-1;$('wDots').innerHTML=Array.from({length:PAGES},(_,k)=>'<i'+(k===p?' class="on"':'')+(k>=FARM_PAGES?' style="border-radius:2px"':'')+'></i>').join('')};
+if(FEATURES.unlockAll)$('testBadge').style.display='block';
 G.playLevel=i=>G.loadout?G.loadout.open(i):G.startLevel(i);
 G.mapThumb=(m,w,h)=>{const c=document.createElement('canvas'),d=Math.min(3,devicePixelRatio||1);c.width=w*d;c.height=h*d;c.style.cssText='width:'+w+'px;height:'+h+'px;border-radius:14px;border:3px solid #fff8;position:static;display:block';
   const x=c.getContext('2d');x.scale(d,d);x.fillStyle=m.ground[0];x.fillRect(0,0,w,h);x.fillStyle=m.ground[1];for(let y=0;y<h;y+=24)x.fillRect(0,y,w,12);
@@ -859,7 +862,7 @@ if(FEATURES.store){
   {const old=JSON.parse(localStorage.getItem(SAVE_KEY)||'{}');if(old.ownedHoles&&!old.headsMigrated){const MAPH={alien:'alien',frog:'frog',shark:'shark',monster:'monster',rainbow:'unicorn',golden:'lion'};S.ownedHeads={default:true};let refund=0;
     for(const k of Object.keys(old.ownedHoles)){if(k==='default')continue;if(MAPH[k])S.ownedHeads[MAPH[k]]=true;else refund+=STORE_ITEMS._oldHoleRefund}
     S.coins=(S.coins||0)+refund;S.head=MAPH[old.hole]||'default';S.headsMigrated=true;S.migratedRefund=refund;delete S.ownedHoles;delete S.hole;G.persist()}}
-  S.ownedMaps=S.ownedMaps||{};S.ownedHeads=Object.assign({default:true},S.ownedHeads||{});S.head=S.head&&HEADS[S.head]?S.head:'default';S.headsMigrated=true;S.mapUnlocked=S.mapUnlocked||{};S.ownedChasers=S.ownedChasers||{};S.chaser=S.chaser||'default';
+  S.ownedMaps=S.ownedMaps||{};S.ownedHeads=Object.assign({default:true},S.ownedHeads||{});S.head=S.head&&HEADS[S.head]&&(FEATURES.unlockAll||S.ownedHeads[S.head])?S.head:'default';S.headsMigrated=true;S.mapUnlocked=S.mapUnlocked||{};S.ownedChasers=S.ownedChasers||{};S.chaser=S.chaser||'default';
   let tab='maps',previews=[],raf=0;
   const css=document.createElement('style');css.textContent=`
 #sStore{justify-content:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;padding:calc(env(safe-area-inset-top) + 16px) 14px 24px;gap:10px}
@@ -881,9 +884,9 @@ if(FEATURES.store){
   let back='sMenu';
   G.store={
     price:(kind,id)=>STORE_ITEMS[kind][id],
-    owns:(kind,id)=>kind==='maps'?!!S.ownedMaps[id]:kind==='chasers'?(id==='default'||!!S.ownedChasers[id]):!!S.ownedHeads[id],
+    owns:(kind,id)=>FEATURES.unlockAll?true:kind==='maps'?!!S.ownedMaps[id]:kind==='chasers'?(id==='default'||!!S.ownedChasers[id]):!!S.ownedHeads[id],
     buy(kind,id){if(this.owns(kind,id))return 'owned';const p=this.price(kind,id);if(p==null)return 'unknown';if(S.coins<p)return 'short';S.coins-=p;(kind==='maps'?S.ownedMaps:kind==='chasers'?S.ownedChasers:S.ownedHeads)[id]=true;G.persist();return 'ok'},
-    equip(id){if(!S.ownedHeads[id])return false;S.head=id;G.persist();return true},
+    equip(id){if(!HEADS[id]||!this.owns('heads',id))return false;S.head=id;G.persist();return true},
     equipChaser(id){if(!this.owns('chasers',id))return false;S.chaser=id;G.persist();return true},
     unlockAll(){MAPS.forEach(m=>S.ownedMaps[m.id]=true);Object.keys(HOLE_SKINS).forEach(k=>S.ownedHeads[k]=true);Object.keys(CHASERS).forEach(k=>S.ownedChasers[k]=true);G.persist()}, // test hook
     open(t){if(t)tab=t;back=document.querySelector('.scr.on')?.id||'sMenu';if(back==='sStore')back='sMenu';G.show('sStore');render();scr.scrollTop=0},
