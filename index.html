@@ -91,6 +91,7 @@ const PLAYER_SPEED=0.67;
 const LEVEL_TIME_SCALE=1.45;
 const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fair at the slower PLAYER_SPEED)
 const FEATURES={
+  blankMouth:true, // heads: open mouth is a see-through wedge (no gums/throat/tongue; teeth stay)
   hiFiGraphics:true, // pseudo-3D renderer: lit/cached sprites, cast shadows, graded ground, parallax sky, caustics, swaying grass (off = flat fallback)
   unlockAll:true,    // TESTING ONLY - set to false before launch. Tester mode: every level/map/head/chaser playable & equippable (real save untouched; flip off = normal locks)
   timer:true,        // countdown per level (off = untimed; finish by reaching goal)
@@ -505,8 +506,8 @@ function drawHoleOver(c,x,y,r,ry,sk,t,st,stun){st=st||HEAD_ST;if(st.fx==null)Obj
   if(sk.ears==='spout')for(let i=0;i<4;i++){const ph=(t*1.2+i/4)%1;c.fillStyle='rgba(140,200,255,'+(0.9-ph*0.8)+')';c.beginPath();c.arc(-R*0.25+(i-1.5)*R*0.12*ph*2,-R*1.05-ph*R*0.7,R*(0.08+ph*0.06),0,7);c.fill()}
   // --- mouth interior ---
   const reach=R*(1+L)*0.93;const g=c.createRadialGradient(0,0,R*0.1,0,0,reach);g.addColorStop(0,sk.wall[2]);g.addColorStop(0.75,sk.wall[1]);g.addColorStop(1,sk.wall[0]);
-  c.fillStyle=g;c.beginPath();c.moveTo(-R*0.1,0);c.lineTo(Math.cos(a)*reach,-Math.sin(a)*reach);c.lineTo(Math.cos(a)*reach,Math.sin(a)*reach);c.closePath();c.fill(); // straight wedge only (no round disc)
-  c.fillStyle='#ff6f98';c.beginPath();c.ellipse(R*0.35,R*0.06+Math.sin(a)*R*0.25,R*0.38,R*0.1,0.15,0,7);c.fill();
+  if(!FEATURES.blankMouth){c.fillStyle=g;c.beginPath();c.moveTo(-R*0.1,0);c.lineTo(Math.cos(a)*reach,-Math.sin(a)*reach);c.lineTo(Math.cos(a)*reach,Math.sin(a)*reach);c.closePath();c.fill(); // straight wedge only (no round disc)
+  c.fillStyle='#ff6f98';c.beginPath();c.ellipse(R*0.35,R*0.06+Math.sin(a)*R*0.25,R*0.38,R*0.1,0.15,0,7);c.fill()}
   // --- jaws ---
   const jaw=(up)=>{c.save();if(!up){c.rotate(a);c.scale(1,-1)}
     c.fillStyle=up?sk.skin:(sk.chin||sk.skin);if(FEATURES.hiFiGraphics){const sg=Math.sign(fx)||1,gx=-0.4*R*sg,gy=up?-0.6*R:0.2*R,gd=c.createRadialGradient(gx,gy,R*0.1,gx*0.3,gy*0.3,R*(1.5+L));gd.addColorStop(0,shade(up?sk.skin:(sk.chin||sk.skin),up?50:30));gd.addColorStop(0.55,up?sk.skin:(sk.chin||sk.skin));gd.addColorStop(1,shade(up?sk.skin:(sk.chin||sk.skin),-45));c.fillStyle=gd}c.beginPath();c.moveTo(-R*0.15,0);c.lineTo(-R,0);
@@ -520,8 +521,8 @@ function drawHoleOver(c,x,y,r,ry,sk,t,st,stun){st=st||HEAD_ST;if(st.fx==null)Obj
     else if(T==='tusks'&&!up)tooth(tip*0.8,R*0.26,R*0.09,'#fff8e0');
     c.restore()};
   jaw(false);
-  if(sk.tongue==='floppy'){c.save();c.rotate(a);c.fillStyle='#ff7aa8';c.beginPath();c.ellipse(R*(0.95+L),R*0.18+Math.sin(t*6)*R*0.03,R*0.14,R*0.24,0.3,0,7);c.fill();oc(c,ow*0.7);c.restore()}
-  if(sk.tongue==='flick'&&(t%2.2)<0.35){const e=Math.sin((t%2.2)/0.35*Math.PI);c.strokeStyle='#ff5a8a';c.lineWidth=R*0.12;c.lineCap='round';c.beginPath();c.moveTo(R*0.3,0);c.lineTo(R*(0.8+e*1.1),R*0.05);c.stroke();C(0.8+e*1.1,0.05,0.1,'#ff5a8a')}
+  if(sk.tongue==='floppy'&&!FEATURES.blankMouth){c.save();c.rotate(a);c.fillStyle='#ff7aa8';c.beginPath();c.ellipse(R*(0.95+L),R*0.18+Math.sin(t*6)*R*0.03,R*0.14,R*0.24,0.3,0,7);c.fill();oc(c,ow*0.7);c.restore()}
+  if(sk.tongue==='flick'&&!FEATURES.blankMouth&&(t%2.2)<0.35){const e=Math.sin((t%2.2)/0.35*Math.PI);c.strokeStyle='#ff5a8a';c.lineWidth=R*0.12;c.lineCap='round';c.beginPath();c.moveTo(R*0.3,0);c.lineTo(R*(0.8+e*1.1),R*0.05);c.stroke();C(0.8+e*1.1,0.05,0.1,'#ff5a8a')}
   if(sk.pouch){c.save();c.rotate(a);c.fillStyle=sk.skin2;c.beginPath();c.moveTo(R*0.4,0);c.lineTo(R*(1+pr.beak),0);c.quadraticCurveTo(R*1.0,R*(0.75+Math.sin(t*4)*0.06),R*0.3,R*0.45);c.closePath();c.fill();oc(c,ow);c.restore()}
   c.save();c.rotate(-a);
   jaw(true);
