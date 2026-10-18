@@ -94,7 +94,7 @@ const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
   blankMouth:true, // heads: open mouth is a see-through wedge (no gums/throat/tongue; teeth stay)
   hiFiGraphics:true, // pseudo-3D renderer: lit/cached sprites, cast shadows, graded ground, parallax sky, caustics, swaying grass (off = flat fallback)
-  unlockAll:true,    // TESTING ONLY - set to false before launch. Tester mode: every level/map/head/chaser playable & equippable (real save untouched; flip off = normal locks)
+  unlockAll:false,   // TESTING ONLY (dev: add ?dev=1 to the URL to turn it on). Tester mode: every level/map/head/chaser playable & equippable (real save untouched; flip off = normal locks)
   timer:true,        // countdown per level (off = untimed; finish by reaching goal)
   sound:true,        // WebAudio sound effects (per-world palette) + mute button
   music:true,        // per-world procedural background music + its own mute button
@@ -108,19 +108,72 @@ const FEATURES={
   farmer:true,       // a friendly farmer chases your head; swallow him late for a bonus
   howToPlay:true,    // 'How to Play' guide screen from the main menu
   store:true,        // Store: buy extra maps, heads and chasers with coins
+  coinShop:true,     // Store 'Coins' tab: real-money coin packs via IAP (TEST stub until a native billing plugin is attached)
   loadout:true,      // 'Get Ready' screen before a level: pick head + chaser
   leaderboard:false, // local stub for best scores (swap in a server later)
 };
-/* ===================== STORE PRICES =====================
- PLACEHOLDER prices (in-game coins only) — Joel will set the real prices later.
- Every buyable item is listed here by id; edit a number to change its price.
- Adding a map/hole: add its entry to MAPS / HOLE_SKINS below and a price here. */
-const STORE_ITEMS={
-  maps: {space:500,moon:500,ocean:500,minigolf:500,candy:500,dino:500,pirate:500,haunted:500,toys:500,west:500},
-  chasers:{astronaut:300,moonwalker:300,diver:300,groundskeeper:300,candychef:300,explorer:300,captain:300,caretaker:300,soldier:300,sheriff:300,robot:300,ninja:300,pizzachef:300,alien:300,grandma:300,trex:300,werewolf:300,dracula:300},
-  heads:{hippo:250,frog:250,shark:250,alien:250,trex:250,croc:250,dragon:250,whale:250,pug:250,monster:250,pelican:250,unicorn:250,lion:250},
-  _oldHoleRefund:250, // refund per old hole skin that has no matching head (save migration)
+// hidden dev switch for testing: ?dev=1 unlocks everything (tester mode, real save untouched); ?dev=0 or no param = normal
+if(/[?&]dev=1\b/.test(location.search))FEATURES.unlockAll=true;
+/* ===================== PRICES (single editable registry) =====================
+ Every price in the game lives here. An item's price is a tier name (see tiers) or a plain coin number.
+ Measured earn rate (greedy test bot, near-perfect play, 85 wins sampled incl. combo coins):
+   worlds 1-4 ~68 coins/win, worlds 5-10 ~112/win, theme maps ~74/win (10 per star + score/100 + up to 10 combo coins).
+ Planning rate for a typical kid (~2 stars, fewer combos): ~60 coins per level won.
+   common     250  ~ 4 levels      rare       600  ~10 levels
+   epic       900  ~15 levels      legendary 2400  ~40 levels
+ Head frame glow colour in the store/loadout follows the tier (free+common blue, rare cyan, epic purple, legendary gold).
+ free: what a new player owns. Farm worlds 1..free.farmWorlds are free (levels unlock by progression);
+ later farm worlds are bought in order. Theme maps: buy any. 'default' chaser = the level's own chaser (Farmer on the farm). */
+const PRICES={
+  tiers:{common:250,rare:600,epic:900,legendary:2400},
+  free:{heads:['default'],chasers:['default'],farmWorlds:4},
+  farmWorlds:{5:500,6:750,7:1000,8:1250,9:1500,10:2000},
+  maps:{minigolf:600,candy:600,ocean:900,moon:900,toys:900,west:900,dino:1500,pirate:1500,space:2400,haunted:2400},
+  heads:{wolf:'common',hippo:'common',frog:'common',pug:'common',pelican:'common',shark:'rare',croc:'rare',whale:'rare',alien:'rare',
+         monster:'epic',trex:'epic',dragon:'legendary',unicorn:'legendary',lion:'legendary'},
+  chasers:{grandma:'common',pizzachef:'common',ninja:'rare',robot:'rare',astronaut:'rare',moonwalker:'rare',diver:'rare',groundskeeper:'rare',
+           candychef:'rare',explorer:'rare',captain:'rare',soldier:'rare',sheriff:'rare',alien:'epic',caretaker:'epic',trex:'legendary',dracula:'legendary',werewolf:'legendary'},
+  // real-money coin packs (FEATURES.coinShop). sku = store product id; usd = list price (real builds show the store's localized price)
+  coinPacks:[
+    {sku:'com.slyescape.coins.small', name:'Handful of Coins',icon:'🪙',usd:0.99, coins:500,  bonus:0},
+    {sku:'com.slyescape.coins.medium',name:'Coin Pouch',      icon:'💰',usd:2.99, coins:1650, bonus:10},
+    {sku:'com.slyescape.coins.large', name:'Coin Sack',       icon:'💰',usd:4.99, coins:3000, bonus:20,badge:'Popular'},
+    {sku:'com.slyescape.coins.xlarge',name:'Treasure Chest',  icon:'🧰',usd:9.99, coins:6500, bonus:30},
+    {sku:'com.slyescape.coins.mega',  name:'Dragon Hoard',    icon:'👑',usd:19.99,coins:15000,bonus:50,badge:'Best value'}],
+  starterPack:{sku:'com.slyescape.starter',name:'Starter Pack',icon:'🎁',usd:1.99,coins:1000,heads:['wolf'],chasers:['ninja'],oneTime:true},
+  existingSaveGrant:200, // one-time coins for testers whose old (pre-pricing) save had its unlocks reset
+  _oldHoleRefund:250,    // legacy save migration (old hole skins)
 };
+const TIER_NAMES=['common','rare','epic','legendary'];
+function priceOf(kind,id){const v=(PRICES[kind]||{})[id];return typeof v==='string'?PRICES.tiers[v]:v}
+function priceTier(kind,id){const v=(PRICES[kind]||{})[id];if(v==null)return 0;if(typeof v==='string')return Math.max(0,TIER_NAMES.indexOf(v));let t=0;TIER_NAMES.forEach((n,i)=>{if(v>=PRICES.tiers[n])t=i});return t}
+// legacy view used by the store code: STORE_ITEMS[kind][id] = coin price
+const STORE_ITEMS={_oldHoleRefund:PRICES._oldHoleRefund};
+for(const k of ['maps','heads','chasers','farmWorlds'])STORE_ITEMS[k]=Object.fromEntries(Object.keys(PRICES[k]).map(id=>[id,priceOf(k,id)]));
+STORE_ITEMS.worlds=STORE_ITEMS.farmWorlds;
+/* ===================== IAP (real-money coin packs) =====================
+ TEST STUB: with no native provider, IAP.purchase(sku) shows a 'Test purchase - no money charged' dialog and grants the coins.
+ To ship: set window.SlyBilling (or IAP.provider) to a StoreKit / Google Play Billing adapter before boot, implementing
+   init(skus) -> Promise<[{sku,price}]>   (localized price strings)
+   purchase(sku) -> Promise<{ok, transactionId, receipt}>
+   finish(result)                          (acknowledge/consume after coins are granted)
+ Validate receipts server-side before granting in production. Coins are only granted by IAP.grant(sku). */
+const IAP={
+  get TEST(){return !this.provider},provider:null,prices:{},
+  products(){return[...PRICES.coinPacks,PRICES.starterPack]},
+  product(sku){return this.products().find(p=>p.sku===sku)},
+  priceLabel(p){return this.prices[p.sku]||('$'+p.usd.toFixed(2))},
+  owned(sku){return !!((G.save.iap||{})[sku])},
+  async init(){this.provider=this.provider||window.SlyBilling||null;if(this.provider&&this.provider.init){try{const l=await this.provider.init(this.products().map(p=>p.sku));(l||[]).forEach(x=>this.prices[x.sku]=x.price)}catch(e){console.warn('IAP init',e)}}},
+  async purchase(sku){const p=this.product(sku);if(!p)return{ok:false,error:'unknown sku'};if(p.oneTime&&this.owned(sku))return{ok:false,error:'owned'};
+    if(this.provider){const r=await this.provider.purchase(sku);if(r&&r.ok){this.grant(sku);this.provider.finish&&this.provider.finish(r)}return r||{ok:false}}
+    const ok=await this.testConfirm(p);if(!ok)return{ok:false,cancelled:true};this.grant(sku);return{ok:true,sku,test:true}},
+  testConfirm(p){return new Promise(res=>{const st=G.store;if(!st)return res(window.confirm('Test purchase - no money charged'));
+    st.confirm('🧪 TEST purchase','<b>Test purchase - no money charged.</b><br><br>'+p.icon+' '+p.name+': 🪙 '+p.coins.toLocaleString('en-US')+((p.heads||[]).length?' + '+p.heads.map(h=>HEADS[h].name).join(', '):'')+((p.chasers||[]).length?' + '+p.chasers.map(c=>CHASERS[c].name).join(', '):'')+'<br>Normally '+this.priceLabel(p)+'.',()=>res(true),()=>res(false),'Buy (test)')})},
+  grant(sku){const p=this.product(sku),S=G.save;if(!p)return;S.coins=(S.coins||0)+p.coins;S.iap=S.iap||{};S.iap[sku]=(S.iap[sku]||0)+1;
+    (p.heads||[]).forEach(h=>{(S.ownedHeads=S.ownedHeads||{})[h]=true});(p.chasers||[]).forEach(c=>{(S.ownedChasers=S.ownedChasers||{})[c]=true});G.persist();G.hook('coinsChanged')},
+};
+const WORLD_ICON=['🌼','❄️','🌙','🦆','🍎','🎃','🐄','🍇','🎡','🤠'];
 /* ===================== DATA: object types ===================== */
 const OBJECT_TYPES={
   // --- animals (cute, wander a little) ---
@@ -482,10 +535,11 @@ const LEVELS=[
  The player is a hungry creature HEAD seen from above. Its open MOUTH is the old hole:
  same radius, same rules (things smaller than the mouth get gobbled). One entry = one head.
    skin/skin2/lip: colours   wall: mouth interior gradient   ears/eyes/teeth/nose: part styles
-   back(c,P,r,t,st) / front(c,P,r,t,st): optional extra animated layers. 'default' = free Grey Wolf.
+   back(c,P,r,t,st) / front(c,P,r,t,st): optional extra animated layers. 'default' = free Black Cat.
  Price lives in STORE_ITEMS.heads. */
 const HEADS={
- default:{name:'Grey Wolf',skin:'#8a94a6',skin2:'#dfe4ec',lip:'#3a3f4a',wall:['#ff8aa0','#8a1a3a','#120208'],ears:'pointy',eyes:'normal',teeth:'fangs',nose:'dog'},
+ default:{name:'Black Cat',skin:'#34353f',skin2:'#4a4b58',lip:'#15151c',wall:['#ff8aa0','#8a1a3a','#120208'],ears:'pointy',eyes:'normal',teeth:'fangs',nose:'cat'},
+ wolf:   {name:'Grey Wolf',skin:'#8a94a6',skin2:'#dfe4ec',lip:'#3a3f4a',wall:['#ff8aa0','#8a1a3a','#120208'],ears:'pointy',eyes:'normal',teeth:'fangs',nose:'dog'},
  hippo:  {name:'Hippo',skin:'#a88ad8',skin2:'#d0bcf4',lip:'#7a5ab0',wall:['#ff9ab8','#9a2a5a','#14030a'],ears:'tiny',eyes:'top',teeth:'tusks',nose:'nostrils',big:1.12},
  frog:   {name:'Frog',skin:'#5fcf4a',skin2:'#c8f0a0',lip:'#2f8a2a',wall:['#ff8aa8','#a02a4a','#1a0208'],ears:'none',eyes:'bulge',teeth:'none',nose:'dots',tongue:'flick'},
  shark:  {name:'Shark',skin:'#7a8aa8',skin2:'#e8ecf5',lip:'#4a5a70',wall:['#ff6a7a','#7a1a2a','#100004'],ears:'fin',eyes:'small',teeth:'rows',nose:'none'},
@@ -505,7 +559,7 @@ const _skinSel=()=>HEADS[(FEATURES.store&&G.save.head)||'default']||HEADS.defaul
 // head animation state (shared by gameplay + previews): dir = facing (+1 right/-1 left), fx = eased flip, ph = chomp-cycle phase, open = mouth half-angle
 const HEAD_ST={ang:0,dir:1,fx:1,ph:0,open:0.35,chomp:0,chew:0};
 // per-head profile shape: L = snout/jaw length (x head radius), beak = separate coloured beak
-const PROFILE={default:{L:0.42},hippo:{L:0.22},frog:{L:0.05},shark:{L:0.38},alien:{L:0},trex:{L:0.4},croc:{L:0.95},dragon:{L:0.45},whale:{L:0.12},pug:{L:0.02},monster:{L:0},pelican:{L:0,beak:1.0},unicorn:{L:0.36},lion:{L:0.18}};
+const PROFILE={default:{L:0.2},wolf:{L:0.42},hippo:{L:0.22},frog:{L:0.05},shark:{L:0.38},alien:{L:0},trex:{L:0.4},croc:{L:0.95},dragon:{L:0.45},whale:{L:0.12},pug:{L:0.02},monster:{L:0},pelican:{L:0,beak:1.0},unicorn:{L:0.36},lion:{L:0.18}};
 function oc(c,w){c.strokeStyle=OUTLINE;c.lineWidth=w;c.stroke()}
 // mouth opening for a state (chomp cycle; a gulp snaps it shut)
 function headOpen(st){return Math.max(0.04,st.open*(1-st.chomp*0.9))}
@@ -547,7 +601,16 @@ const SPH=(()=>{let c,R,ow,T=0,BL=false,STN=false,SK=null;const PI=Math.PI;
   const RB=['#ff5a5a','#ffa53a','#ffe03a','#5ad65a','#4aa8ff','#a066ff'];
   /* each species: h = jaw hinge, mp = mouth x (food target), back/lower/upper drawers (local coords, facing +x, R = head radius) */
   const D={
-  default:{lt:[[0.98,0.08,-0.3,0.085],[0.62,0.08,-0.15,0.055],[0.32,0.08,-0.13,0.05]],ut:[[1.08,0.06,0.32,0.085],[0.8,0.07,0.15,0.055],[0.47,0.07,0.14,0.05]],h:[-0.3,0.1],mp:0.8,
+  default:{lt:[[0.6,0.1,-0.22,0.07],[0.32,0.1,-0.12,0.045]],ut:[[0.74,0.08,0.34,0.09],[0.46,0.08,0.13,0.045]],h:[-0.25,0.12],mp:0.55, // Black Cat (free)
+    back(s){S([['M',-0.62,-0.62],['Q',-0.7,-1.1,-0.68,-1.42],['Q',-0.4,-1.12,-0.24,-0.86]],shade(s.skin,-12))},
+    lower(s){S([['M',-0.25,0.12],['Q',-0.62,0.3,-0.42,0.48],['Q',0.1,0.62,0.62,0.42],['Q',0.86,0.28,0.86,0.1]],s.skin,{gy:0.1});F([['E',0.3,0.36,0.3,0.09,-0.1]],'rgba(255,255,255,.08)')},
+    upper(s){S([['M',-0.46,-0.74],['Q',-0.42,-1.2,-0.3,-1.56],['Q',0.0,-1.2,0.14,-0.82]],s.skin);F([['M',-0.34,-0.86],['Q',-0.32,-1.18,-0.28,-1.34],['Q',-0.1,-1.1,-0.02,-0.88]],'#e87aa0');
+      S([['M',-0.25,0.12],['L',-0.8,0.24],['C',-1.02,-0.24,-0.84,-0.9,-0.2,-0.92],['C',0.3,-0.94,0.6,-0.62,0.66,-0.4],['Q',0.94,-0.32,0.96,-0.12],['L',0.9,0.08]],s.skin);
+      S(fur(-0.78,0.14,0.2,0.15,PI*0.45,PI*1.35,3,0.4),s.skin,{norim:1,ow:ow*0.7});F([['E',-0.15,-0.66,0.36,0.12,-0.25]],'rgba(255,255,255,.12)');
+      F([['E',0.7,-0.16,0.28,0.17,-0.1]],s.skin2);S([['M',0.86,-0.32],['L',1.0,-0.27],['L',0.92,-0.16]],'#ff8aa8',{norim:1,ow:ow*0.6});line([[0.93,-0.17],[0.9,-0.04]],ow*0.7,'#14141c');
+      for(const[a,b]of[[[0.72,-0.16],[1.42,-0.3]],[[0.74,-0.1],[1.46,-0.1]],[[0.72,-0.04],[1.38,0.08]]])line([a,b],Math.max(1,ow*0.55),'rgba(240,240,250,.9)');
+      eye(0.28,-0.5,0.2,{iris:'#58e86a',slit:1,lid:s.skin})}},
+  wolf:{lt:[[0.98,0.08,-0.3,0.085],[0.62,0.08,-0.15,0.055],[0.32,0.08,-0.13,0.05]],ut:[[1.08,0.06,0.32,0.085],[0.8,0.07,0.15,0.055],[0.47,0.07,0.14,0.05]],h:[-0.3,0.1],mp:0.8,
     back(s){S([['M',-0.35,0.22],...puff(-0.55,0.22,0.62,0.6,PI*0.3,PI*1.55,6,0.14,1).slice(1).map(p=>p),['L',-0.35,0.22]],shade(s.skin,22),{gy:0.3});S([['M',-0.82,-0.68],['L',-0.72,-1.32],['L',-0.42,-0.8]],shade(s.skin,-28))},
     lower(s){S([['M',-0.3,0.1],['Q',-0.75,0.2,-0.62,0.45],['Q',-0.2,0.64,0.5,0.44],['Q',1.0,0.3,1.24,0.12],['L',1.16,0.07]],s.skin2,{gy:0.1});},
     upper(s){S([['M',-0.55,-0.72],['L',-0.4,-1.46],['L',-0.06,-0.82]],s.skin);F([['M',-0.45,-0.82],['L',-0.38,-1.25],['L',-0.18,-0.86]],'#ffb0c4');
@@ -2468,20 +2531,22 @@ addEventListener('pointerup',()=>{G.input.active=false;G.input.x=G.input.y=0});
 /* ---------- menus ---------- */
 $('bPlay').onclick=()=>{G.hook('userGesture');FEATURES.levelSelect?(G.renderSelect(),G.show('sSelect')):G.startLevel(Math.min(G.save.unlocked,LEVELS.length)-1)};
 $('bBack').onclick=()=>G.show('sMenu');$('bMenu').onclick=()=>{G.state='menu';G.show('sMenu')};
-$('bRetry').onclick=()=>G.startLevel(G.li);$('bNext').onclick=()=>G.startLevel(G.li+1);
+$('bRetry').onclick=()=>G.startLevel(G.li);$('bNext').onclick=()=>{const n=G.li+1;if(G.canPlay&&!G.canPlay(n)){G.renderSelect(Math.floor(n/10));G.show('sSelect');return}G.startLevel(n)};
 const PER_PAGE=10,FARM_PAGES=FARM_LEVELS/PER_PAGE,PAGES=FARM_PAGES+(FEATURES.store?MAPS.length:0);G.page=null;
 G.renderSelect=(p)=>{if(p==null)p=G.page??Math.floor((Math.min(G.save.unlocked,FARM_LEVELS)-1)/PER_PAGE);G.page=p=Math.max(0,Math.min(PAGES-1,p));
-  const g=$('lvGrid');g.innerHTML='';let got=0;const m=p>=FARM_PAGES?MAPS[p-FARM_PAGES]:null,owned=!m||(G.store&&G.store.owns('maps',m.id));
+  const g=$('lvGrid');g.innerHTML='';let got=0;const m=p>=FARM_PAGES?MAPS[p-FARM_PAGES]:null,owned=m?!!(G.store&&G.store.owns('maps',m.id)):(!G.store||G.store.owns('worlds',p+1));
   const unl=FEATURES.unlockAll?(m?PER_PAGE:FARM_LEVELS):m?((G.save.mapUnlocked||{})[m.id]||1):G.save.unlocked;
-  if(!owned){const d=document.createElement('div');d.style.cssText='grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:10px';d.appendChild(G.mapThumb(m,240,150));
-    const b=document.createElement('button');b.className='btn';b.textContent='🔒 Get in Store';b.onclick=()=>G.store.open('maps');d.appendChild(b);g.appendChild(d)}
+  if(!owned){const d=document.createElement('div');d.style.cssText='grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:10px';d.appendChild(m?G.mapThumb(m,240,150):G.worldThumb(p+1,240,150));
+    const b=document.createElement('button');b.className='btn';b.textContent='🔒 Unlock · 🪙 '+(G.store.price(m?'maps':'worlds',m?m.id:p+1)||0).toLocaleString('en-US');b.onclick=()=>G.store.open('maps');d.appendChild(b);g.appendChild(d)}
   else for(let i=p*PER_PAGE;i<Math.min(LEVELS.length,(p+1)*PER_PAGE);i++){const L=LEVELS[i],b=document.createElement('button');b.className='lv'+(L.bonus?' bonus':'');b.textContent=i%PER_PAGE+1+(m?0:p*PER_PAGE);
     b.disabled=(m?i%PER_PAGE:i)>=unl;const s=G.save.stars[i]||0;got+=s;if(FEATURES.stars&&!b.disabled)b.innerHTML+='<small>'+'★'.repeat(s)+'☆'.repeat(3-s)+'</small>';if(b.disabled)b.innerHTML='🔒';
     b.onclick=()=>G.playLevel(i);g.appendChild(b)}
-  $('wTitle').textContent=m?(m.icon+' '+m.name):('World '+(p+1)+' · '+(LEVELS[p*PER_PAGE].theme||'Meadow'));$('wStars').textContent=!owned?'Map · not owned':FEATURES.stars?'★ '+got+' / '+PER_PAGE*3:'';
+  $('wTitle').textContent=m?(m.icon+' '+m.name):('World '+(p+1)+' · '+(LEVELS[p*PER_PAGE].theme||'Meadow'));$('wStars').textContent=!owned?(m?'Map':'World')+' · not owned':FEATURES.stars?'★ '+got+' / '+PER_PAGE*3:'';
   $('wPrev').disabled=p===0;$('wNext').disabled=p===PAGES-1;$('wDots').innerHTML=Array.from({length:PAGES},(_,k)=>'<i'+(k===p?' class="on"':'')+(k>=FARM_PAGES?' style="border-radius:2px"':'')+'></i>').join('')};
 if(FEATURES.unlockAll)$('testBadge').style.display='block';
-G.playLevel=i=>G.loadout?G.loadout.open(i):G.startLevel(i);
+// can level i be played now? (owned world/map + reached by progression)
+G.canPlay=i=>{if(FEATURES.unlockAll)return true;const L=LEVELS[i];if(!L)return false;const st=G.store;if(L.map)return(!st||st.owns('maps',L.map))&&i%10<((G.save.mapUnlocked||{})[L.map]||1);return(!st||st.owns('worlds',Math.floor(i/10)+1))&&i<G.save.unlocked};
+G.playLevel=i=>{if(!G.canPlay(i)){G.store&&G.store.open('maps');return}G.loadout?G.loadout.open(i):G.startLevel(i)};
 /* ---- HQ store / Get Ready thumbnails: rendered once per (item,size,dpr) into cached canvases, then copied (cheap) ----
    maps: real mini-scene (that map's ground + backdrop + signature props + landmark + its chaser, all lit like in game)
    chasers: lit HQ chaser art in a spotlight card;  heads: lit head art with an open mouth in a glowing frame. */
@@ -2500,7 +2565,7 @@ const THUMB=(()=>{const CACHE=new Map(),DPR=()=>Math.min(3,devicePixelRatio||1),
   function fitObj(x,T,cx,cy,box){if(!T)return;const hk=T.h/T.size,rv=box/Math.max(2.1,hk+0.55);putObj(x,T,cx,cy+(hk+0.25)*rv/2,rv)}
   function putObj(x,T,cx,cy,r){if(!T)return;const o={T,size:T.size,face:1,x:0,y:0};const e=GFX.sprite(o,r),q=r/e.rq;x.drawImage(e.c,cx-e.half*q,cy-e.top*q,e.half*2*q,(e.top+e.bot)*q)}
   /* ---------- maps ---------- */
-  function mapScene(m,w,h,pill){const d=DPR(),c=mk(w*d,h*d),x=c.getContext('2d');x.scale(d,d);const L0=LEVELS.find(l=>l.map===m.id)||LEVELS[0];
+  function mapScene(m,w,h,pill){const d=DPR(),c=mk(w*d,h*d),x=c.getContext('2d');x.scale(d,d);const L0=m.L0||LEVELS.find(l=>l.map===m.id)||LEVELS[0];
     const by=Math.round(h*0.3),k=2.3*Math.max(1,150/w)**0.15;
     // backdrop past the far edge (same art as in game)
     const bd=GFX.bdFor?GFX.bdFor(L0):null;if(bd){const s=(by+h*0.12)/320*1.35;for(let X=-((m.id.length*53)%300)*s;X<w;X+=900*s)x.drawImage(bd,X,by+12*s-320*s,900*s,320*s)}else{x.fillStyle='#bfe8ff';x.fillRect(0,0,w,by)}
@@ -2508,7 +2573,7 @@ const THUMB=(()=>{const CACHE=new Map(),DPR=()=>Math.min(3,devicePixelRatio||1),
     const Lc=Object.assign({},L0,{size:[Math.round(w*k),Math.round((h-by)*k)]}),keep=[G.groundCv,G.groundFor,G.groundHF];
     try{buildGround(Lc);x.fillStyle=shade(L0.ground[0],-55);x.fillRect(0,by-2,w,h-by+2);x.drawImage(G.groundCv,0,by,w,h-by)}finally{[G.groundCv,G.groundFor,G.groundHF]=keep}
     // props: landmark (largest) + mid + small signature items, y-sorted
-    const types=m.objs.map(o=>OBJECT_TYPES[m.id+'_'+o[0]]).filter(Boolean).sort((a,b)=>b.size-a.size);
+    const types=(m.types?m.types.slice():m.objs.map(o=>OBJECT_TYPES[m.id+'_'+o[0]]).filter(Boolean)).sort((a,b)=>b.size-a.size);
     let sd=m.id.length*131+7;const rn=()=>((sd=(sd*9301+49297)%233280)/233280);const gh=h-by,items=[];
     const surfY=Lc.layout==='ocean'||Lc.layout==='pirate';
     if(types[0])items.push({T:types[0],x:w*0.7,y:by+gh*(types[0].place==='surf'?0.97:0.5),r:Math.min(h*0.3,types[0].size/k*1.05)});
@@ -2538,7 +2603,8 @@ const THUMB=(()=>{const CACHE=new Map(),DPR=()=>Math.min(3,devicePixelRatio||1),
     if(isDef){x.font='900 '+Math.max(9,Math.round(h*0.11))+'px system-ui';const t='🗺️ map default',tw=x.measureText(t).width+12,ph=h*0.17;x.fillStyle='rgba(20,8,40,.55)';rr(x,5,5,tw,ph,ph/2);x.fill();x.fillStyle='#fff';x.textBaseline='middle';x.fillText(t,11,5+ph/2+1)}
     g=x.createRadialGradient(w/2,h/2,h*0.4,w/2,h/2,w*0.7);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(10,0,30,.35)');x.fillStyle=g;x.fillRect(0,0,w,h);x.strokeStyle='rgba(255,255,255,.35)';x.lineWidth=2;rr(x,1,1,w-2,h-2,10);x.stroke();return c}
   /* ---------- heads ---------- */
-  const TIER={default:0,hippo:0,frog:0,pug:0,pelican:0,shark:1,croc:1,whale:1,lion:1,alien:2,trex:2,monster:2,dragon:3,unicorn:3};
+  const TIER=Object.fromEntries(Object.keys(HEADS).map(k=>[k,priceTier('heads',k)])); // frame glow = price tier (PRICES)
+  function worldMap(n){const L0=LEVELS[(n-1)*10+1];return{id:'farm'+n,icon:WORLD_ICON[n-1],name:L0.theme,ground:L0.ground,L0,types:[...new Set(L0.spawn.map(q=>q[0]))].map(k=>OBJECT_TYPES[k]).filter(Boolean),chaser:{id:'farmer'}}}
   const TC=[['#5a7ad8','#2a3a8a','#9ab8ff'],['#2ab0e8','#0a4a8a','#7ae0ff'],['#b05af0','#4a1a8a','#e0a0ff'],['#ffb020','#8a4a0a','#ffe680']];
   function headCard(id,w,h){const d=DPR(),c=mk(w*d,h*d),x=c.getContext('2d');x.scale(d,d);const sk=HEADS[id]||HEADS.default,tc=TC[TIER[id]??1];
     let g=x.createRadialGradient(w/2,h*0.5,2,w/2,h*0.5,w*0.62);g.addColorStop(0,tc[0]);g.addColorStop(1,tc[1]);x.fillStyle=g;x.fillRect(0,0,w,h);
@@ -2555,12 +2621,14 @@ const THUMB=(()=>{const CACHE=new Map(),DPR=()=>Math.min(3,devicePixelRatio||1),
     g=x.createLinearGradient(0,0,0,h*0.45);g.addColorStop(0,'rgba(255,255,255,.22)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;rr(x,3,3,w-6,h*0.45,9);x.fill();return c}
   const cardPH=(a,b)=>(w,h)=>x=>{const g=x.createLinearGradient(0,0,0,h);g.addColorStop(0,a);g.addColorStop(1,b);x.fillStyle=g;x.fillRect(0,0,w,h)};
   return{
+    world:(n,w,h,css,pill)=>{const m=worldMap(n);return get('w|'+n+'|'+w+'x'+h+'|'+DPR()+(pill?'p':''),w,h,css,()=>mapScene(m,w,h,pill),mapPH(m,w,h))},
     map:(m,w,h,css,pill)=>get('m|'+m.id+'|'+w+'x'+h+'|'+DPR()+(pill?'p':''),w,h,css,()=>mapScene(m,w,h,pill),mapPH(m,w,h)),
     chaser:(id,w,h,defId)=>get('c|'+id+'|'+(defId||'')+'|'+w+'x'+h+'|'+DPR(),w,h,'',()=>chaserCard(id,w,h,defId),cardPH('#3a2a8a','#1c1250')(w,h)),
     head:(id,w,h)=>get('h|'+id+'|'+w+'x'+h+'|'+DPR(),w,h,'',()=>headCard(id,w,h),cardPH('#4a5ab8','#22205a')(w,h)),
     cacheSize:()=>CACHE.size,pending:()=>Q.length}})();
 G.THUMB=THUMB;
 G.mapThumb=(m,w,h)=>THUMB.map(m,w,h,'width:'+w+'px;height:'+h+'px;border-radius:14px;border:3px solid #fff8;position:static;display:block',true);
+G.worldThumb=(n,w,h)=>THUMB.world(n,w,h,'width:'+w+'px;height:'+h+'px;border-radius:14px;border:3px solid #fff8;position:static;display:block',true);
 $('wPrev').onclick=()=>G.renderSelect(G.page-1);$('wNext').onclick=()=>G.renderSelect(G.page+1);
 {let sx=null;$('sSelect').addEventListener('pointerdown',e=>sx=e.clientX);$('sSelect').addEventListener('pointerup',e=>{if(sx!=null&&Math.abs(e.clientX-sx)>50)G.renderSelect(G.page+(e.clientX<sx?1:-1));sx=null})}
 G.ui={tool(label,fn){const b=document.createElement('button');b.className='ic';b.textContent=label;b.onclick=e=>{e.stopPropagation();fn(b)};$('tools').appendChild(b);return b},
@@ -3050,7 +3118,7 @@ if(FEATURES.howToPlay){
    ['farmer','Watch out for the farmer!','He chases you waving a pitchfork. Each catch stuns your head briefly and costs time, getting worse each time: <b>-1s, -2s, -3s…</b> (resets every level). On gold <b>★ Bonus</b> levels a catch costs the time <b>and</b> shrinks your head a little!'],
    ['🐑','Turn the tables','Late in a level, once you are big, he panics, grabs an animal and runs. Gobble him and his animal for a <b>+500 FARMER BONUS</b>!'],
    ['🌍','Worlds & bonus levels','10 farm worlds with 10 levels each — meadow to giant ranch. Every 10th level is a gold <b>★ Bonus</b> level with its own upbeat music.'],
-   ['🛒','Store','Spend the coins you earn on 10 new themed maps (each with its own chaser) and 13 fun creature heads (start as the free Grey Wolf). Heads are just for looks — no advantage.'],
+   ['🛒','Store','Spend the coins you earn on 10 new themed maps (each with its own chaser) and 6 more farm worlds, 14 fun creature heads and lots of chasers (you start with the Black Cat and the Farmer, plus farm worlds 1-4). Heads are just for looks — no advantage.'],
    ['🏃','Get Ready & chasers','Tap a level to open <b>Get Ready</b>: pick your head and chaser, then hit Play. Buy extra chasers in the Store and use them on any map — they all play the same.'],
    ['🔊','Sound & music','<b>🔊</b> toggles sound effects, <b>🎵</b> toggles music. Your choice is remembered.'],
   ].filter(c=>!((c[0]==='⏱️'&&!FEATURES.timer)||(c[0]==='🔥'&&!FEATURES.combos)||(c[0]==='🪙'&&!FEATURES.boosters&&!FEATURES.coins)||((c[0]==='farmer'||c[0]==='🐑')&&!FEATURES.farmer)||(c[0]==='🔊'&&!FEATURES.sound&&!FEATURES.music)||(c[0]==='🛒'&&!FEATURES.store)||(c[0]==='🏃'&&!FEATURES.loadout)));
@@ -3070,55 +3138,83 @@ if(FEATURES.store){
   {const old=JSON.parse(localStorage.getItem(SAVE_KEY)||'{}');if(old.ownedHoles&&!old.headsMigrated){const MAPH={alien:'alien',frog:'frog',shark:'shark',monster:'monster',rainbow:'unicorn',golden:'lion'};S.ownedHeads={default:true};let refund=0;
     for(const k of Object.keys(old.ownedHoles)){if(k==='default')continue;if(MAPH[k])S.ownedHeads[MAPH[k]]=true;else refund+=STORE_ITEMS._oldHoleRefund}
     S.coins=(S.coins||0)+refund;S.head=MAPH[old.hole]||'default';S.headsMigrated=true;S.migratedRefund=refund;delete S.ownedHoles;delete S.hole;G.persist()}}
-  S.ownedMaps=S.ownedMaps||{};S.ownedHeads=Object.assign({default:true},S.ownedHeads||{});S.head=S.head&&HEADS[S.head]&&(FEATURES.unlockAll||S.ownedHeads[S.head])?S.head:'default';S.headsMigrated=true;S.mapUnlocked=S.mapUnlocked||{};S.ownedChasers=S.ownedChasers||{};S.chaser=S.chaser||'default';
+  // pricing launch (v1): earlier tester saves had everything open; reset unlocks to the free defaults, keep coins + progress, add a small grant
+  if(S.pricing!==1){const raw=JSON.parse(localStorage.getItem(SAVE_KEY)||'null'),had=!!raw&&((raw.unlocked||1)>1||(raw.coins||0)>0||Object.keys(raw.ownedMaps||{}).length>0||Object.keys(raw.ownedHeads||{}).length>1||Object.keys(raw.ownedChasers||{}).length>0);
+    S.ownedMaps={};S.ownedHeads={default:true};S.ownedChasers={};S.ownedWorlds={};S.head='default';S.chaser='default';if(had){S.coins=(S.coins||0)+PRICES.existingSaveGrant;S.pricingGrant=PRICES.existingSaveGrant}S.pricing=1;G.persist()}
+  S.ownedWorlds=S.ownedWorlds||{};S.ownedMaps=S.ownedMaps||{};S.ownedHeads=Object.assign({default:true},S.ownedHeads||{});S.head=S.head&&HEADS[S.head]&&(FEATURES.unlockAll||S.ownedHeads[S.head])?S.head:'default';S.headsMigrated=true;S.mapUnlocked=S.mapUnlocked||{};S.ownedChasers=S.ownedChasers||{};S.chaser=S.chaser||'default';
   let tab='maps',previews=[],raf=0;
   const css=document.createElement('style');css.textContent=`
 #sStore{justify-content:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;padding:calc(env(safe-area-inset-top) + 16px) 14px 24px;gap:10px}
-.stTabs{display:flex;gap:8px}.stTabs button{border:0;border-radius:14px;padding:9px 13px;font:900 17px system-ui;color:#fff;background:#ffffff22}.stTabs button.on{background:linear-gradient(#ffcf33,#ff8a00);box-shadow:0 4px 0 #b35500}
+.stTabs{display:flex;gap:5px;flex-wrap:wrap;justify-content:center}.stTabs button{border:0;border-radius:14px;padding:8px 8px;font:900 14px system-ui;color:#fff;background:#ffffff22}.stTabs button.on{background:linear-gradient(#ffcf33,#ff8a00);box-shadow:0 4px 0 #b35500}
 .stList{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;max-width:420px}
 .stItem{background:#ffffff1c;border:2px solid #ffffff30;border-radius:16px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:6px}
 .stItem canvas{position:static;width:100%;height:auto;border-radius:12px}.stItem b{font-size:15px}
 .stItem button{border:0;border-radius:12px;padding:7px 0;width:100%;font:900 15px system-ui;color:#fff;background:linear-gradient(#5dff9a,#14b35c);box-shadow:0 4px 0 #0a6b37}
 .stItem button.owned{background:#ffffff33;box-shadow:none}.stItem button.eq{background:linear-gradient(#4fe3ff,#1e8cff);box-shadow:0 4px 0 #0a4fa8}
+.stHdr{grid-column:1/-1;font-weight:900;font-size:16px;text-align:left;padding:4px 2px 0}.stItem button.blk{background:#ffffff22;box-shadow:none;color:#ffffffaa}
+.stGet{border:0;border-radius:999px;padding:6px 12px;font:900 14px system-ui;color:#3a1a00;background:linear-gradient(#ffe14d,#ffb020);box-shadow:0 3px 0 #b36a00}
+.stPack{position:relative;padding:12px 8px 8px}.stPack.wide{grid-column:1/-1;background:linear-gradient(#ff8ad855,#7b3cff55);border-color:#ffe14d}
+.stIc{font-size:40px;line-height:1.1}.stAmt{font:900 20px system-ui;color:#ffe14d}.stBon{font:900 12px system-ui;color:#5dff9a}.stInc{font-size:12px;opacity:.9;text-align:center}
+.stItem button.usd{background:linear-gradient(#ffcf33,#ff8a00);box-shadow:0 4px 0 #b35500}
+.stRib{position:absolute;top:-9px;right:-6px;background:#ff3b6b;color:#fff;font:900 11px system-ui;font-style:normal;padding:3px 8px;border-radius:999px;box-shadow:0 2px 6px #0006;transform:rotate(6deg)}
+.stTest{display:inline-block;background:#ffe14d;color:#3a1a00;border-radius:10px;padding:4px 8px;font-size:12px}
 #stModal{position:fixed;inset:0;background:#0009;display:none;align-items:center;justify-content:center;z-index:9}#stModal.on{display:flex}
 #stModal>div{background:linear-gradient(#7b3cff,#4a1aa8);border:3px solid #fff8;border-radius:20px;padding:20px;width:290px;text-align:center;color:#fff;display:flex;flex-direction:column;gap:12px}
 #stModal .btn{min-width:0;padding:10px 20px;font-size:18px}
 #stToast{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);background:#ff4a5a;color:#fff;font:900 18px system-ui;padding:12px 18px;border-radius:14px;z-index:10;display:none;box-shadow:0 6px 20px #0008;text-align:center}`;
   document.head.appendChild(css);
-  const scr=document.createElement('div');scr.className='scr';scr.id='sStore';scr.innerHTML='<h2>Store</h2><div class="pill" id="stCoins" style="background:#0005;font-weight:900"></div><div class="stTabs"><button data-t="maps">🗺️ Maps</button><button data-t="heads">🐺 Heads</button><button data-t="chasers">🏃 Chasers</button></div><div class="stList" id="stList"></div><div class="dim" style="font-size:13px">Earn coins by winning levels. Heads and chasers are just for looks (✦ = a map&#39;s own chaser, free on its map).</div><button class="btn alt" id="stBack" style="flex-shrink:0">Back</button>';
+  const scr=document.createElement('div');scr.className='scr';scr.id='sStore';scr.innerHTML='<h2>Store</h2><div style="display:flex;gap:8px;align-items:center"><div class="pill" id="stCoins" style="background:#0005;font-weight:900"></div>'+(FEATURES.coinShop?'<button id="stGet" class="stGet">＋ Get Coins</button>':'')+'</div><div class="stTabs"><button data-t="maps">🗺️ Maps</button><button data-t="heads">🐱 Heads</button><button data-t="chasers">🏃 Chasers</button>'+(FEATURES.coinShop?'<button data-t="coins">🪙 Coins</button>':'')+'</div><div class="stList" id="stList"></div><div class="dim" style="font-size:13px">Earn coins by winning levels. Heads and chasers are just for looks (✦ = a map&#39;s own chaser, free on its map).</div><button class="btn alt" id="stBack" style="flex-shrink:0">Back</button>';
   document.body.appendChild(scr);
   const modal=document.createElement('div');modal.id='stModal';modal.innerHTML='<div><h2 id="stMT" style="font-size:22px"></h2><div id="stMB"></div><div style="display:flex;gap:10px;justify-content:center"><button class="btn alt" id="stNo">Cancel</button><button class="btn" id="stYes">Buy</button></div></div>';document.body.appendChild(modal);
   const toast=document.createElement('div');toast.id='stToast';document.body.appendChild(toast);
   let back='sMenu';
   G.store={
     price:(kind,id)=>STORE_ITEMS[kind][id],
-    owns:(kind,id)=>FEATURES.unlockAll?true:kind==='maps'?!!S.ownedMaps[id]:kind==='chasers'?(id==='default'||!!S.ownedChasers[id]):!!S.ownedHeads[id],
-    buy(kind,id){if(this.owns(kind,id))return 'owned';const p=this.price(kind,id);if(p==null)return 'unknown';if(S.coins<p)return 'short';S.coins-=p;(kind==='maps'?S.ownedMaps:kind==='chasers'?S.ownedChasers:S.ownedHeads)[id]=true;G.persist();return 'ok'},
+    owns:(kind,id)=>FEATURES.unlockAll?true:kind==='maps'?!!S.ownedMaps[id]:kind==='worlds'?(+id<=PRICES.free.farmWorlds||!!S.ownedWorlds[id]):kind==='chasers'?(PRICES.free.chasers.includes(id)||!!S.ownedChasers[id]):(PRICES.free.heads.includes(id)||!!S.ownedHeads[id]),
+    buy(kind,id){if(this.owns(kind,id))return 'owned';if(kind==='worlds'&&!this.owns('worlds',+id-1))return 'order';const p=this.price(kind,id);if(p==null)return 'unknown';if(S.coins<p)return 'short';S.coins-=p;(kind==='maps'?S.ownedMaps:kind==='worlds'?S.ownedWorlds:kind==='chasers'?S.ownedChasers:S.ownedHeads)[id]=true;G.persist();return 'ok'},
     equip(id){if(!HEADS[id]||!this.owns('heads',id))return false;S.head=id;G.persist();return true},
     equipChaser(id){if(!this.owns('chasers',id))return false;S.chaser=id;G.persist();return true},
-    unlockAll(){MAPS.forEach(m=>S.ownedMaps[m.id]=true);Object.keys(HOLE_SKINS).forEach(k=>S.ownedHeads[k]=true);Object.keys(CHASERS).forEach(k=>S.ownedChasers[k]=true);G.persist()}, // test hook
+    unlockAll(){MAPS.forEach(m=>S.ownedMaps[m.id]=true);for(let n=1;n<=FARM_PAGES;n++)S.ownedWorlds[n]=true;Object.keys(HOLE_SKINS).forEach(k=>S.ownedHeads[k]=true);Object.keys(CHASERS).forEach(k=>S.ownedChasers[k]=true);G.persist()}, // test hook
     open(t){if(t)tab=t;back=document.querySelector('.scr.on')?.id||'sMenu';if(back==='sStore')back='sMenu';G.show('sStore');render();scr.scrollTop=0},
     toast(msg){toast.textContent=msg;toast.style.display='block';clearTimeout(toast._t);toast._t=setTimeout(()=>toast.style.display='none',1600)},
-    confirm(title,body,yes){$('stMT').textContent=title;$('stMB').innerHTML=body;modal.classList.add('on');$('stYes').onclick=()=>{modal.classList.remove('on');yes()};$('stNo').onclick=()=>modal.classList.remove('on')},
+    confirm(title,body,yes,no,yesLabel){$('stMT').textContent=title;$('stMB').innerHTML=body;$('stYes').textContent=yesLabel||'Buy';modal.classList.add('on');$('stYes').onclick=()=>{modal.classList.remove('on');yes()};$('stNo').onclick=()=>{modal.classList.remove('on');no&&no()}},
   };
   function holePreview(id,w=168,h=112){return THUMB.head(id,w,h)}
   function chaserPreview(id,w=168,h=112,host,defId){return THUMB.chaser(id,w,h,defId)}
   G.chaserPreview=chaserPreview;G.holePreview=(id,host,w,h)=>holePreview(id,w||96,h||64);
   function loop(){if(!scr.classList.contains('on')){raf=0;return}const t=performance.now()/1000;previews.forEach(f=>f(t));raf=requestAnimationFrame(loop)}
-  function render(){$('stCoins').textContent='🪙 '+S.coins;scr.querySelectorAll('.stTabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
+  function render(){$('stCoins').textContent='🪙 '+S.coins.toLocaleString('en-US');scr.querySelectorAll('.stTabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
     const list=$('stList');list.innerHTML='';previews=[];
-    const items=tab==='maps'?MAPS.map(m=>({id:m.id,name:m.icon+' '+m.name,view:THUMB.map(m,168,112,'')})):tab==='chasers'?['default',...Object.keys(CHASERS)].map(id=>({id,name:id==='default'?'Map default':CHASERS[id].name+(CHASERS[id].fromMap?' ✦':''),view:chaserPreview(id)})):Object.entries(HOLE_SKINS).map(([id,sk])=>({id,name:sk.name,view:holePreview(id)}));
-    for(const it of items){const d=document.createElement('div');d.className='stItem';d.appendChild(it.view);const nm=document.createElement('b');nm.textContent=it.name;d.appendChild(nm);
-      const b=document.createElement('button'),own=G.store.owns(tab,it.id),price=it.id==='default'?0:G.store.price(tab,it.id);
-      if((tab==='heads'&&S.head===it.id)||(tab==='chasers'&&S.chaser===it.id)){b.textContent='✓ Equipped';b.className='eq'}else if(own){b.textContent=tab==='maps'?'Owned · Play':'Equip';b.className='owned'}else b.textContent='🪙 '+price;
-      b.onclick=()=>{if(tab==='heads'&&own){G.store.equip(it.id);render();return}
-        if(tab==='chasers'&&own){G.store.equipChaser(it.id);render();return}
-        if(own){const mi=MAPS.findIndex(m=>m.id===it.id);G.renderSelect(FARM_PAGES+mi);G.show('sSelect');return}
-        if(S.coins<price){G.store.toast('Not enough coins! Need 🪙 '+(price-S.coins)+' more.');return}
-        G.store.confirm('Buy '+it.name+'?','Spend <b>🪙 '+price+'</b>? You have 🪙 '+S.coins+'.',()=>{const r=G.store.buy(tab,it.id);if(r==='ok'){if(tab==='heads')G.store.equip(it.id);if(tab==='chasers')G.store.equipChaser(it.id);G.sfx&&G.sfx(880,0.25,'triangle',0.1,400);G.store.toast('Unlocked '+it.name+'!');toast.style.background='#14b35c';setTimeout(()=>toast.style.background='',1700)}render()})};
+    if(tab==='coins'){renderCoins(list);return}
+    const NF=PRICES.free.farmWorlds;
+    const items=tab==='maps'?[{hdr:'🌾 Farm Worlds '+(NF+1)+'–'+FARM_PAGES+' (unlock in order)'},...Array.from({length:FARM_PAGES-NF},(_,k)=>{const n=NF+1+k;return{kind:'worlds',id:n,name:WORLD_ICON[n-1]+' World '+n+' · '+LEVELS[(n-1)*10].theme,view:THUMB.world(n,168,112,'')}}),
+        {hdr:'🗺️ Theme Maps'},...MAPS.map(m=>({kind:'maps',id:m.id,name:m.icon+' '+m.name,view:THUMB.map(m,168,112,'')}))]
+      :tab==='chasers'?['default',...Object.keys(CHASERS)].map(id=>({kind:'chasers',id,name:id==='default'?'Farmer / map default':CHASERS[id].name+(CHASERS[id].fromMap?' ✦':''),view:chaserPreview(id)}))
+      :Object.entries(HOLE_SKINS).map(([id,sk])=>({kind:'heads',id,name:sk.name,view:holePreview(id)}));
+    for(const it of items){if(it.hdr){const h=document.createElement('div');h.className='stHdr';h.textContent=it.hdr;list.appendChild(h);continue}
+      const K=it.kind,d=document.createElement('div');d.className='stItem';d.appendChild(it.view);const nm=document.createElement('b');nm.textContent=it.name;d.appendChild(nm);
+      const b=document.createElement('button'),own=G.store.owns(K,it.id),price=G.store.price(K,it.id)||0,blocked=K==='worlds'&&!own&&!G.store.owns('worlds',it.id-1);
+      if((K==='heads'&&S.head===it.id)||(K==='chasers'&&S.chaser===it.id)){b.textContent='✓ Equipped';b.className='eq'}else if(own){b.textContent=K==='maps'||K==='worlds'?'Owned · Play':'Equip';b.className='owned'}else{b.textContent=(blocked?'🔒 ':'')+'🪙 '+price.toLocaleString('en-US');if(blocked)b.className='blk'}
+      b.onclick=()=>{if(K==='heads'&&own){G.store.equip(it.id);render();return}
+        if(K==='chasers'&&own){G.store.equipChaser(it.id);render();return}
+        if(own){G.renderSelect(K==='worlds'?it.id-1:FARM_PAGES+MAPS.findIndex(m=>m.id===it.id));G.show('sSelect');return}
+        if(blocked){G.store.toast('Unlock World '+(it.id-1)+' first!');return}
+        if(S.coins<price){short(price);return}
+        G.store.confirm('Buy '+it.name+'?','Spend <b>🪙 '+price.toLocaleString('en-US')+'</b>? You have 🪙 '+S.coins.toLocaleString('en-US')+'.',()=>{const r=G.store.buy(K,it.id);if(r==='ok'){if(K==='heads')G.store.equip(it.id);if(K==='chasers')G.store.equipChaser(it.id);G.sfx&&G.sfx(880,0.25,'triangle',0.1,400);G.store.toast('Unlocked '+it.name+'!');toast.style.background='#14b35c';setTimeout(()=>toast.style.background='',1700)}render()})};
       d.appendChild(b);list.appendChild(d)}
     if(!raf)raf=requestAnimationFrame(loop)}
-  scr.querySelectorAll('.stTabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()});
+  function short(price){const need=price-S.coins;if(FEATURES.coinShop)G.store.confirm('Not enough coins','You need <b>🪙 '+need.toLocaleString('en-US')+'</b> more.<br>Win more levels, or get coins.',()=>{tab='coins';render();scr.scrollTop=0},null,'🪙 Get Coins');else G.store.toast('Not enough coins! Need 🪙 '+need+' more.')}
+  function pack(p,wide){const d=document.createElement('div');d.className='stItem stPack'+(wide?' wide':'');
+    const inc=[...(p.heads||[]).map(h=>'🐾 '+HEADS[h].name+' head'),...(p.chasers||[]).map(c=>(CHASERS[c].emoji||'🏃')+' '+CHASERS[c].name+' chaser')];
+    d.innerHTML=(p.badge?'<i class="stRib">'+p.badge+'</i>':'')+'<div class="stIc">'+p.icon+'</div><b>'+p.name+'</b><div class="stAmt">🪙 '+p.coins.toLocaleString('en-US')+'</div>'+(p.bonus?'<div class="stBon">+'+p.bonus+'% bonus</div>':'')+(inc.length?'<div class="stInc">+ '+inc.join(' · ')+(p.oneTime?'<br>one time only':'')+'</div>':'');
+    const b=document.createElement('button');b.className='usd';b.textContent=IAP.priceLabel(p)+(IAP.TEST?' (test)':'');
+    b.onclick=async()=>{const r=await IAP.purchase(p.sku);if(r&&r.ok){G.sfx&&G.sfx(990,0.3,'triangle',0.1,500);G.store.toast('+🪙 '+p.coins.toLocaleString('en-US')+' coins!');toast.style.background='#14b35c';setTimeout(()=>toast.style.background='',1700);render()}};
+    d.appendChild(b);return d}
+  function renderCoins(list){const ban=document.createElement('div');ban.className='stHdr';ban.style.textAlign='center';ban.innerHTML=IAP.TEST?'<span class="stTest">🧪 TEST MODE · purchases are simulated, no money is charged</span>':'Get coins';list.appendChild(ban);
+    const sp=PRICES.starterPack;if(sp&&!(sp.oneTime&&IAP.owned(sp.sku)))list.appendChild(pack(sp,true));
+    for(const p of PRICES.coinPacks)list.appendChild(pack(p,false));
+    const n=document.createElement('div');n.className='dim';n.style.cssText='grid-column:1/-1;font-size:12px;text-align:center';n.textContent='Coins are also earned free by winning levels. Ask a grown-up before buying.';list.appendChild(n)}
+  scr.querySelectorAll('.stTabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()});if($('stGet'))$('stGet').onclick=()=>{tab='coins';render();scr.scrollTop=0};G.IAP=IAP;window.IAP=IAP;IAP.init();
   $('stBack').onclick=()=>{back==='sSelect'?(G.renderSelect(),G.show('sSelect')):back==='sLoad'&&G.loadout?G.loadout.open(G.loadout.level):G.show(back)};
   G.use({init(G){const b=document.createElement('button');b.className='btn';b.id='bStore';b.textContent='🛒 Store';$('menuExtra').prepend(b);b.onclick=()=>{G.hook('userGesture');G.store.open()}},
     levelEnd(){if(G.coinEl)G.coinEl.textContent='🪙 '+S.coins}})}
@@ -3133,7 +3229,7 @@ if(FEATURES.loadout){
 .ldCard.lock{opacity:.5}.ldCard.lock::after{content:'🔒 Get in Store';position:absolute;bottom:6px;left:0;right:0;font-size:11px;color:#ffe14d}
 .ldCard.lock span{visibility:hidden}.ldH{align-self:flex-start;max-width:440px;width:100%;margin:0 auto;font-weight:900;font-size:17px;text-align:left}`;
   document.head.appendChild(css);
-  const scr=document.createElement('div');scr.className='scr';scr.id='sLoad';scr.innerHTML='<h2>Get Ready!</h2><div id="ldLv" class="dim" style="font-weight:900"></div><div class="ldH">🐺 Head</div><div class="ldRow" id="ldHoles"></div><div class="ldH">🏃 Chaser</div><div class="ldRow" id="ldChasers"></div><button class="btn" id="ldPlay" style="font-size:28px;padding:16px 50px;flex-shrink:0">▶ PLAY</button><button class="btn alt" id="ldBack" style="flex-shrink:0">Back</button>';
+  const scr=document.createElement('div');scr.className='scr';scr.id='sLoad';scr.innerHTML='<h2>Get Ready!</h2><div id="ldLv" class="dim" style="font-weight:900"></div><div class="ldH">🐱 Head</div><div class="ldRow" id="ldHoles"></div><div class="ldH">🏃 Chaser</div><div class="ldRow" id="ldChasers"></div><button class="btn" id="ldPlay" style="font-size:28px;padding:16px 50px;flex-shrink:0">▶ PLAY</button><button class="btn alt" id="ldBack" style="flex-shrink:0">Back</button>';
   document.body.appendChild(scr);
   let anim=[],raf=0;
   function loop(){if(!scr.classList.contains('on')){raf=0;return}const t=performance.now()/1000;anim.forEach(f=>f(t));raf=requestAnimationFrame(loop)}
@@ -3157,7 +3253,7 @@ if(FEATURES.leaderboard){const KEY='slyescape.lb';
   G.use({levelEnd(G,r){if(r.win)G.leaderboard.submit('You',r.score,r.level+1)},
     init(G){const b=document.createElement('button');b.className='btn alt';b.textContent='Top Scores';$('menuExtra').appendChild(b);
       b.onclick=()=>alert(G.leaderboard.load().slice(0,10).map((e,i)=>(i+1)+'. '+e.name+' L'+e.level+' — '+e.score).join('\n')||'No scores yet')}})}
-// title art: the Grey Wolf head chomping a chick
+// title art: the free Black Cat head chomping a chick
 {const tc=$('titleArt'),tx=tc.getContext('2d'),st={ang:0.4,chomp:0,chew:0};(function anim(){if($('sMenu').classList.contains('on')){const t=performance.now()/1000,k=(t*0.8)%1;tx.setTransform(2,0,0,2,0,0);tx.clearRect(0,0,220,150);
   previewHead(tx,110,104,34,HEADS.default,t,st,'🐔')}requestAnimationFrame(anim)})()}
 /* ===================== BOOT ===================== */
