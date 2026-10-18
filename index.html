@@ -2,6 +2,9 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Sly Escape</title>
+<script>if(/^https?:$/.test(location.protocol)){const l=document.createElement("link");l.rel="manifest";l.href="manifest.json";document.head.appendChild(l)}</script><meta name="theme-color" content="#5a2ad0">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png"><link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Sly Escape"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <!--
 ==========================================================================
  SLY ESCAPE - a single-file casual "swallow everything" game.
@@ -70,6 +73,13 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 .howto .card .em{font-size:34px;min-width:46px;text-align:center;filter:drop-shadow(0 3px 0 #0005)}.howto .card b{color:#ffe14d;font-size:17px}.howto .card p b{font-size:inherit}.howto .card p{font-size:14px;line-height:1.35;margin-top:2px}
 .howto canvas{position:static;width:46px;height:46px;flex-shrink:0}
 .dim{opacity:.85;font-size:16px}
+#pGate{position:fixed;inset:0;z-index:50;background:#14082ae6;display:flex;align-items:center;justify-content:center;font-family:system-ui}
+.pgBox{background:linear-gradient(#ffffff,#eef0ff);color:#2a1050;border-radius:22px;padding:18px 18px 14px;width:300px;text-align:center;display:flex;flex-direction:column;gap:8px;box-shadow:0 10px 40px #0009}
+.pgT{font:900 22px system-ui}.pgM{font-size:14px;opacity:.8}.pgQ{font:800 14px system-ui;margin-top:4px}.pgW{font:900 22px system-ui;color:#5a2ad0;letter-spacing:.5px}
+.pgD{display:flex;gap:8px;justify-content:center}.pgD span{width:42px;height:46px;border-radius:10px;background:#fff;border:2px solid #c8c0f0;font:900 26px/42px system-ui}
+.pgE{min-height:16px;font:800 13px system-ui;color:#e0304a}.pgK{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.pgK button{border:0;border-radius:12px;padding:10px 0;font:900 22px system-ui;color:#2a1050;background:#e4e0ff;box-shadow:0 3px 0 #b8b0e8}.pgK button:active{transform:translateY(2px);box-shadow:none}
+.pgBox .pgC{margin-top:4px;font-size:17px;padding:9px 0}.shake{animation:pgS .4s}@keyframes pgS{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
 </style></head><body>
 <canvas id="cv"></canvas>
 <div id="hudTop"><div class="row"><span class="pill" id="hLv">Lv 1</span><span class="pill" id="hScore">0</span><span class="pill" id="hTime"></span></div>
@@ -90,6 +100,12 @@ const PLAYER_SPEED=0.67;
 /* LEVEL_TIME_SCALE: level time limits are multiplied by this to balance slower movement. */
 const LEVEL_TIME_SCALE=1.45;
 const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fair at the slower PLAYER_SPEED)
+/* ===================== BUILD (store release config) =====================
+ release:true for App Store / Google Play builds: forces unlockAll off, ignores ?dev=1 (no tester mode),
+ and hides the coin shop unless a real billing provider (window.SlyBilling) is attached, so TEST banners never ship.
+ Bump version/build for every store upload (also bump CACHE in sw.js so the offline copy updates). */
+const BUILD={version:'1.0.0',build:1,release:false,
+  supportEmail:'slyescape@mail.grokbot.com',privacyUrl:'privacy.html',supportUrl:'support.html'};
 const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
   blankMouth:true, // heads: open mouth is a see-through wedge (no gums/throat/tongue; teeth stay)
@@ -108,12 +124,33 @@ const FEATURES={
   farmer:true,       // a friendly farmer chases your head; swallow him late for a bonus
   howToPlay:true,    // 'How to Play' guide screen from the main menu
   store:true,        // Store: buy extra maps, heads and chasers with coins
+  parentalGate:true, // grown-up check (digits written as words) before real-money purchases, restore and outside links
+  settings:true,     // Settings screen: sound/music, restore purchases, privacy/support, version
   coinShop:true,     // Store 'Coins' tab: real-money coin packs via IAP (TEST stub until a native billing plugin is attached)
   loadout:true,      // 'Get Ready' screen before a level: pick head + chaser
   leaderboard:false, // local stub for best scores (swap in a server later)
 };
 // hidden dev switch for testing: ?dev=1 unlocks everything (tester mode, real save untouched); ?dev=0 or no param = normal
-if(/[?&]dev=1\b/.test(location.search))FEATURES.unlockAll=true;
+if(!BUILD.release&&/[?&]dev=1\b/.test(location.search))FEATURES.unlockAll=true;
+if(BUILD.release)FEATURES.unlockAll=false; // store builds never ship tester mode
+/* ===================== PARENTAL GATE (FEATURES.parentalGate) =====================
+ Shown before any real-money purchase, restore, and before leaving the game (privacy/support pages).
+ Adult-solvable: three random digits are written out as words ("seven · two · four") and must be typed on a keypad.
+ Pre-readers can't solve it; 3 wrong tries close the gate. GATE.ask(reason) -> Promise<boolean>. */
+const GATE={WORDS:['zero','one','two','three','four','five','six','seven','eight','nine'],
+  ask(reason){if(!FEATURES.parentalGate)return Promise.resolve(true);return new Promise(res=>{
+    const el=document.createElement('div');el.id='pGate';let code=[],typed='',fails=0;
+    const msg={purchase:'A grown-up needs to approve purchases.',restore:'A grown-up needs to approve restoring purchases.',link:'This opens a page outside the game.'}[reason]||'Grown-ups only.';
+    el.innerHTML='<div class="pgBox"><div class="pgT">👋 Ask a grown-up</div><div class="pgM">'+msg+'</div><div class="pgQ">Grown-ups: type these numbers</div><div class="pgW" id="pgW"></div><div class="pgD" id="pgD"></div><div class="pgE" id="pgE"></div><div class="pgK" id="pgK"></div><button class="btn alt pgC" id="pgC">Cancel</button></div>';
+    document.body.appendChild(el);
+    const fresh=()=>{code=[];while(code.length<3){const d=Math.floor(Math.random()*10);if(!code.includes(d))code.push(d)}typed='';el.querySelector('#pgW').textContent=code.map(d=>GATE.WORDS[d]).join(' · ');draw()};
+    const draw=()=>{el.querySelector('#pgD').innerHTML=[0,1,2].map(i=>'<span>'+(typed[i]!=null?typed[i]:'')+'</span>').join('')};
+    const done=v=>{el.remove();GATE._cur=null;res(v)};
+    const key=k=>{if(k==='⌫'){typed=typed.slice(0,-1);draw();return}if(typed.length>=3)return;typed+=k;draw();
+      if(typed.length===3){if(typed===code.join(''))return setTimeout(()=>done(true),120);fails++;el.querySelector('#pgE').textContent=fails>=3?'':'Not quite, try again.';el.querySelector('.pgBox').classList.add('shake');
+        setTimeout(()=>{el.querySelector('.pgBox').classList.remove('shake');if(fails>=3)done(false);else fresh()},420)}};
+    const K=el.querySelector('#pgK');for(const k of ['1','2','3','4','5','6','7','8','9','','0','⌫']){const b=document.createElement('button');b.textContent=k;if(!k)b.style.visibility='hidden';b.onclick=e=>{e.stopPropagation();key(k)};K.appendChild(b)}
+    el.querySelector('#pgC').onclick=()=>done(false);GATE._cur={code:()=>code.join(''),el};fresh()})}};
 /* ===================== PRICES (single editable registry) =====================
  Every price in the game lives here. An item's price is a tier name (see tiers) or a plain coin number.
  Measured earn rate (greedy test bot, near-perfect play, 85 wins sampled incl. combo coins):
@@ -166,10 +203,15 @@ const IAP={
   owned(sku){return !!((G.save.iap||{})[sku])},
   async init(){this.provider=this.provider||window.SlyBilling||null;if(this.provider&&this.provider.init){try{const l=await this.provider.init(this.products().map(p=>p.sku));(l||[]).forEach(x=>this.prices[x.sku]=x.price)}catch(e){console.warn('IAP init',e)}}},
   async purchase(sku){const p=this.product(sku);if(!p)return{ok:false,error:'unknown sku'};if(p.oneTime&&this.owned(sku))return{ok:false,error:'owned'};
+    if(!(await GATE.ask('purchase')))return{ok:false,cancelled:true,gate:true};
+    if(!this.provider&&BUILD.release)return{ok:false,error:'store unavailable'};
     if(this.provider){const r=await this.provider.purchase(sku);if(r&&r.ok){this.grant(sku);this.provider.finish&&this.provider.finish(r)}return r||{ok:false}}
     const ok=await this.testConfirm(p);if(!ok)return{ok:false,cancelled:true};this.grant(sku);return{ok:true,sku,test:true}},
   testConfirm(p){return new Promise(res=>{const st=G.store;if(!st)return res(window.confirm('Test purchase - no money charged'));
     st.confirm('🧪 TEST purchase','<b>Test purchase - no money charged.</b><br><br>'+p.icon+' '+p.name+': 🪙 '+p.coins.toLocaleString('en-US')+((p.heads||[]).length?' + '+p.heads.map(h=>HEADS[h].name).join(', '):'')+((p.chasers||[]).length?' + '+p.chasers.map(c=>CHASERS[c].name).join(', '):'')+'<br>Normally '+this.priceLabel(p)+'.',()=>res(true),()=>res(false),'Buy (test)')})},
+  // restore: only the one-time Starter Pack is restorable (coin packs are consumables). Provider: restore() -> Promise<{skus:[...]}>
+  async restore(){if(!(await GATE.ask('restore')))return{ok:false,cancelled:true};if(!this.provider||!this.provider.restore)return{ok:true,restored:0,test:!this.provider};
+    const r=await this.provider.restore();let n=0;for(const sku of (r&&r.skus)||[]){const p=this.product(sku);if(p&&p.oneTime&&!this.owned(sku)){this.grant(sku);n++}}return{ok:true,restored:n}},
   grant(sku){const p=this.product(sku),S=G.save;if(!p)return;S.coins=(S.coins||0)+p.coins;S.iap=S.iap||{};S.iap[sku]=(S.iap[sku]||0)+1;
     (p.heads||[]).forEach(h=>{(S.ownedHeads=S.ownedHeads||{})[h]=true});(p.chasers||[]).forEach(c=>{(S.ownedChasers=S.ownedChasers||{})[c]=true});G.persist();G.hook('coinsChanged')},
 };
@@ -793,12 +835,36 @@ function headTick(st,mx,sp,dt){if(mx>0.25)st.dir=1;else if(mx<-0.25)st.dir=-1;st
 const cv=document.getElementById('cv'),$=id=>document.getElementById(id);let ctx=cv.getContext('2d'); // let: hi-fi renderer temporarily retargets drawing into sprite canvases
 const TILT=0.78; // pseudo-3D vertical squash
 const SAVE_KEY='slyescape.v1';
+/* ===================== SAVE (storage abstraction + safety) =====================
+ SaveIO wraps storage. Today: synchronous localStorage. Native builds: after boot call
+   SaveIO.attach({get:k=>Preferences.get({key:k}).then(r=>r.value), set:(k,v)=>Preferences.set({key:k,value:v})})
+ (Capacitor Preferences). Every write is then mirrored there, and a newer save found there is pulled back in
+ (e.g. if the WebView's localStorage was wiped). Each write also keeps a backup copy (SAVE_KEY+'.bak'); a corrupt
+ main save is restored from it (the bad text is kept under '.corrupt'). SAVE_VERSION + migrateSave upgrade old saves. */
+const SAVE_VERSION=2;
+function parseSave(s){if(!s)return null;try{const o=JSON.parse(s);return o&&typeof o==='object'&&!Array.isArray(o)?o:null}catch(e){return null}}
+function migrateSave(o){o=Object.assign({unlocked:1,best:{},stars:{},coins:0},o||{});const v=+o.v||1;
+  // v1 -> v2: adds v/savedAt and sanitises fields (structure otherwise unchanged; head/pricing migrations run in the store module)
+  o.unlocked=Math.max(1,Math.min(1000,Math.floor(+o.unlocked)||1));o.coins=Math.max(0,Math.floor(+o.coins)||0);
+  for(const k of ['best','stars','ownedMaps','ownedHeads','ownedChasers','ownedWorlds','mapUnlocked','iap'])if(o[k]!=null&&(typeof o[k]!=='object'||Array.isArray(o[k])))o[k]={};
+  if(!o.best||typeof o.best!=='object')o.best={};if(!o.stars||typeof o.stars!=='object')o.stars={};
+  if(v<SAVE_VERSION)o.migratedFrom=v;o.v=SAVE_VERSION;return o}
+const SaveIO={native:null,
+  get(k){try{return localStorage.getItem(k)}catch(e){return null}},
+  set(k,v){let ok=true;try{localStorage.setItem(k,v)}catch(e){ok=false;console.warn('save failed',e)}if(this.native)Promise.resolve(this.native.set(k,v)).catch(e=>console.warn('native save failed',e));return ok},
+  async attach(adapter){this.native=adapter;try{const o=parseSave(await adapter.get(SAVE_KEY)),cur=G.save;
+      if(o&&(o.savedAt||0)>(cur.savedAt||0)){for(const k of Object.keys(cur))delete cur[k];Object.assign(cur,migrateSave(o));G.hook('saveReloaded')}
+      writeSave(cur);for(const k of ['slyescape.mute','slyescape.musicMute']){const l=this.get(k);if(l!=null)adapter.set(k,l)}}catch(e){console.warn('SaveIO.attach',e)}}};
+function loadSave(){const raw=SaveIO.get(SAVE_KEY);let o=parseSave(raw);
+  if(!o){const b=parseSave(SaveIO.get(SAVE_KEY+'.bak'));if(raw){SaveIO.set(SAVE_KEY+'.corrupt',raw);console.warn('save corrupt: '+(b?'restored backup':'starting fresh'))}if(b){o=b;o.recovered=(+o.recovered||0)+1}}
+  const m=migrateSave(o||{});if(raw&&!parseSave(raw))writeSave(m);return m} // repair the main copy right away
+function writeSave(s){s.savedAt=Date.now();const j=JSON.stringify(s);if(SaveIO.set(SAVE_KEY,j))SaveIO.set(SAVE_KEY+'.bak',j)}
 const Game={
   mods:[],use(m){this.mods.push(m);return m},
   hook(n,...a){for(const m of this.mods)if(m[n])m[n](this,...a)},
   pipe(n,v,...a){for(const m of this.mods)if(m[n])v=m[n](this,...a,v);return v},
-  save:Object.assign({unlocked:1,best:{},stars:{},coins:0},JSON.parse(localStorage.getItem(SAVE_KEY)||'{}')),
-  persist(){localStorage.setItem(SAVE_KEY,JSON.stringify(this.save))},
+  save:loadSave(),
+  persist(){writeSave(this.save)},
   state:'menu',W:0,H:0,dpr:1,input:{x:0,y:0,active:false,sx:0,sy:0},auto:null,
   fx:[],t:0,
 };
@@ -2661,11 +2727,11 @@ const WORLD_SFX=[ // per farm world, same order as THEMES
  ['sine',500,-150,[494,622,740,988]],
  ['square',560,-400,[659,784,988,1319]],
  ['sawtooth',360,-300,[330,415,494,659]]];
-if(FEATURES.sound){let ac=null,muted=localStorage.getItem('slyescape.mute')==='1';
+if(FEATURES.sound){let ac=null,muted=SaveIO.get('slyescape.mute')==='1';
   const tone=(f,d,type='sine',v=0.15,slide=0)=>{if(muted||!ac)return;const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime;o.type=type;o.frequency.setValueAtTime(f,t);
     if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(30,f+slide),t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(0.001,t+d);o.connect(g).connect(ac.destination);o.start(t);o.stop(t+d)};
   G.sfx=tone;
-  G.use({init(G){G.ui.tool(muted?'🔇':'🔊',b=>{muted=!muted;localStorage.setItem('slyescape.mute',muted?'1':'0');b.textContent=muted?'🔇':'🔊'})},
+  G.soundOn=()=>!muted;G.use({init(G){G.sndBtn=G.ui.tool(muted?'🔇':'🔊',b=>{muted=!muted;SaveIO.set('slyescape.mute',muted?'1':'0');b.textContent=muted?'🔇':'🔊'})},
     userGesture(){ac=G.getAC()},
     swallow(G,o){const P=(G.L&&G.L.sfx)||WORLD_SFX[G.worldOf()%WORLD_SFX.length];tone(P[1]*Math.pow(2,Math.min(24,(G.combo||1)-1)/12*0.75),0.18,P[0],P[0]==='sawtooth'||P[0]==='square'?0.06:0.12,P[2]);},
     comboTier(G,t,i){const P=(G.L&&G.L.sfx)||WORLD_SFX[G.worldOf()%WORLD_SFX.length],base=P[3].map(f=>f*Math.pow(2,i/6)),n=3+i;for(let k=0;k<n;k++)setTimeout(()=>tone(base[k%4]*(k>=4?2:1),0.16+(k===n-1?0.25:0),k===n-1?'triangle':P[0],k===n-1?0.11:0.07),k*65);if(i>=3)setTimeout(()=>tone(base[0]*0.5,0.5,'triangle',0.09,base[0]*0.5),0)},
@@ -2684,7 +2750,7 @@ if(FEATURES.music){
    {bpm:92, root:233,scale:[0,2,4,5,7,9],lead:'sine',bass:'triangle'}, // Vineyard waltz-ish
    {bpm:132,root:277,scale:[0,2,4,5,7,9,11],lead:'square',bass:'triangle',pluck:true}, // Harvest fair
    {bpm:108,root:208,scale:[0,2,4,7,9],lead:'sawtooth',bass:'triangle'}]; // Giant ranch
-  const VOL=0.045;let on=localStorage.getItem('slyescape.musicMute')!=='1',master=null,timer=null,next=0,step=0,song=null,pat=null;
+  const VOL=0.045;let on=SaveIO.get('slyescape.musicMute')!=='1',master=null,timer=null,next=0,step=0,song=null,pat=null;
   function makePattern(seed){let x=seed*9301+49297;const r=()=>((x=(x*9301+49297)%233280)/233280);return Array.from({length:32},(_,i)=>i%4===3&&r()<0.5?null:Math.floor(r()*5)+(i%8<4?0:2))}
   function note(f,t,d,type,v){const ac=G.ac,o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+0.01);
     g.gain.exponentialRampToValueAtTime(0.0008,t+d);o.connect(g).connect(master);o.start(t);o.stop(t+d+0.02)}
@@ -2701,7 +2767,7 @@ if(FEATURES.music){
     pat=makePattern(w*31+(G.L.bonus?7:1));step=0;next=ac.currentTime+0.1;timer=setInterval(tick,90);tick()}
   function stop(){if(timer)clearInterval(timer);timer=null;if(master){const m=master,ac=G.ac;m.gain.setTargetAtTime(0,ac.currentTime,0.05);setTimeout(()=>m.disconnect(),300)}master=null}
   G.music={start,stop,isOn:()=>on,playing:()=>!!timer,song:()=>song};
-  G.use({init(G){G.ui.tool('🎵',b=>{on=!on;localStorage.setItem('slyescape.musicMute',on?'0':'1');b.textContent='🎵';b.style.opacity=on?1:0.5;on?start():stop()}).style.opacity=on?1:0.5},
+  G.musicOn=()=>on;G.use({init(G){G.musBtn=G.ui.tool('🎵',b=>{on=!on;SaveIO.set('slyescape.musicMute',on?'0':'1');b.textContent='🎵';b.style.opacity=on?1:0.5;on?start():stop()}).style.opacity=on?1:0.5},
     userGesture(){if(on&&!timer&&G.state==='play')start()},
     levelStart(){if(G.ac)start()}, // only once audio was unlocked by a tap
     levelEnd(){stop()}})}
@@ -3133,13 +3199,14 @@ if(FEATURES.howToPlay){
       b.onclick=()=>{G.hook('userGesture');G.show('sHow');$('sHow').scrollTop=0};$('bHowBack').onclick=()=>G.show('sMenu')}})}
 // --- STORE (maps + cosmetic heads + chasers, bought with coins only) ---
 if(FEATURES.store){
+  if(BUILD.release&&!window.SlyBilling)FEATURES.coinShop=false; // never ship the TEST shop
   const S=G.save;
   // save migration: old hole skins -> heads (matching ones carried over, others refunded)
-  {const old=JSON.parse(localStorage.getItem(SAVE_KEY)||'{}');if(old.ownedHoles&&!old.headsMigrated){const MAPH={alien:'alien',frog:'frog',shark:'shark',monster:'monster',rainbow:'unicorn',golden:'lion'};S.ownedHeads={default:true};let refund=0;
+  {const old=(parseSave(SaveIO.get(SAVE_KEY))||{});if(old.ownedHoles&&!old.headsMigrated){const MAPH={alien:'alien',frog:'frog',shark:'shark',monster:'monster',rainbow:'unicorn',golden:'lion'};S.ownedHeads={default:true};let refund=0;
     for(const k of Object.keys(old.ownedHoles)){if(k==='default')continue;if(MAPH[k])S.ownedHeads[MAPH[k]]=true;else refund+=STORE_ITEMS._oldHoleRefund}
     S.coins=(S.coins||0)+refund;S.head=MAPH[old.hole]||'default';S.headsMigrated=true;S.migratedRefund=refund;delete S.ownedHoles;delete S.hole;G.persist()}}
   // pricing launch (v1): earlier tester saves had everything open; reset unlocks to the free defaults, keep coins + progress, add a small grant
-  if(S.pricing!==1){const raw=JSON.parse(localStorage.getItem(SAVE_KEY)||'null'),had=!!raw&&((raw.unlocked||1)>1||(raw.coins||0)>0||Object.keys(raw.ownedMaps||{}).length>0||Object.keys(raw.ownedHeads||{}).length>1||Object.keys(raw.ownedChasers||{}).length>0);
+  if(S.pricing!==1){const raw=parseSave(SaveIO.get(SAVE_KEY)),had=!!raw&&((raw.unlocked||1)>1||(raw.coins||0)>0||Object.keys(raw.ownedMaps||{}).length>0||Object.keys(raw.ownedHeads||{}).length>1||Object.keys(raw.ownedChasers||{}).length>0);
     S.ownedMaps={};S.ownedHeads={default:true};S.ownedChasers={};S.ownedWorlds={};S.head='default';S.chaser='default';if(had){S.coins=(S.coins||0)+PRICES.existingSaveGrant;S.pricingGrant=PRICES.existingSaveGrant}S.pricing=1;G.persist()}
   S.ownedWorlds=S.ownedWorlds||{};S.ownedMaps=S.ownedMaps||{};S.ownedHeads=Object.assign({default:true},S.ownedHeads||{});S.head=S.head&&HEADS[S.head]&&(FEATURES.unlockAll||S.ownedHeads[S.head])?S.head:'default';S.headsMigrated=true;S.mapUnlocked=S.mapUnlocked||{};S.ownedChasers=S.ownedChasers||{};S.chaser=S.chaser||'default';
   let tab='maps',previews=[],raf=0;
@@ -3256,6 +3323,36 @@ if(FEATURES.leaderboard){const KEY='slyescape.lb';
 // title art: the free Black Cat head chomping a chick
 {const tc=$('titleArt'),tx=tc.getContext('2d'),st={ang:0.4,chomp:0,chew:0};(function anim(){if($('sMenu').classList.contains('on')){const t=performance.now()/1000,k=(t*0.8)%1;tx.setTransform(2,0,0,2,0,0);tx.clearRect(0,0,220,150);
   previewHead(tx,110,104,34,HEADS.default,t,st,'🐔')}requestAnimationFrame(anim)})()}
+// --- SETTINGS (sound/music, restore purchases, privacy & support behind the parental gate, version) ---
+G.openLink=async url=>{if(!(await GATE.ask('link')))return false;const w=window.open(url,'_blank','noopener');if(!w)location.href=url;return true};
+G.toast=msg=>{if(G.store&&G.store.toast){G.store.toast(msg);return}alert(msg)};
+if(FEATURES.settings){
+  const css=document.createElement('style');css.textContent=`
+#sSet{justify-content:flex-start;overflow-y:auto;padding:calc(env(safe-area-inset-top) + 22px) 16px 26px;gap:12px}
+.setRow{display:flex;align-items:center;justify-content:space-between;width:100%;max-width:360px;background:#ffffff1c;border:2px solid #ffffff30;border-radius:16px;padding:10px 14px;font:900 19px system-ui;flex-shrink:0}
+.setRow button.tg{border:0;border-radius:999px;width:78px;padding:8px 0;font:900 16px system-ui;color:#fff;background:#ffffff33}.setRow button.tg.on{background:linear-gradient(#5dff9a,#14b35c);box-shadow:0 3px 0 #0a6b37}
+#sSet .btn{width:100%;max-width:360px;padding:12px 0;font-size:19px;flex-shrink:0}.setVer{font-size:13px;opacity:.75;text-align:center;flex-shrink:0}`;
+  document.head.appendChild(css);
+  const scr=document.createElement('div');scr.className='scr';scr.id='sSet';
+  scr.innerHTML='<h2>Settings</h2><div class="setRow"><span>🔊 Sound</span><button class="tg" id="setSnd"></button></div><div class="setRow"><span>🎵 Music</span><button class="tg" id="setMus"></button></div>'+
+    '<button class="btn alt" id="setRestore">♻️ Restore Purchases</button><button class="btn alt" id="setHow">❓ How to Play</button><button class="btn alt" id="setPriv">🔒 Privacy Policy</button><button class="btn alt" id="setSup">💬 Support &amp; Terms</button>'+
+    '<div class="setVer" id="setVer"></div><button class="btn" id="setBack">Back</button>';
+  document.body.appendChild(scr);
+  const sync=()=>{const s=G.soundOn?G.soundOn():null,m=G.musicOn?G.musicOn():null;for(const[id,v]of[['setSnd',s],['setMus',m]]){const b=$(id);b.parentNode.style.display=v==null?'none':'';b.textContent=v?'ON':'OFF';b.classList.toggle('on',!!v)}};
+  const fake={stopPropagation(){}};
+  $('setSnd').onclick=()=>{G.sndBtn&&G.sndBtn.onclick(fake);sync()};$('setMus').onclick=()=>{G.musBtn&&G.musBtn.onclick(fake);sync()};
+  $('setRestore').onclick=async()=>{const r=await IAP.restore();if(r&&r.ok)G.toast(r.test?'Test build: nothing to restore.':r.restored?'Restored '+r.restored+' purchase(s)!':'Nothing to restore.')};
+  $('setHow').onclick=()=>{if($('sHow')){G.show('sHow');$('sHow').scrollTop=0}};
+  $('setPriv').onclick=()=>G.openLink(BUILD.privacyUrl);$('setSup').onclick=()=>G.openLink(BUILD.supportUrl);
+  $('setVer').innerHTML='Sly Escape v'+BUILD.version+' ('+BUILD.build+')'+(BUILD.release?'':' · test build')+'<br>Help: '+BUILD.supportEmail;
+  $('setBack').onclick=()=>G.show('sMenu');
+  G.settings={open(){sync();G.show('sSet');scr.scrollTop=0}};
+  G.use({init(G){const b=document.createElement('button');b.className='btn alt';b.id='bSet';b.textContent='⚙️ Settings';$('menuExtra').appendChild(b);b.onclick=()=>{G.hook('userGesture');G.settings.open()};
+    if($('sHow')){const f=document.createElement('div');f.className='dim';f.style.cssText='font-size:15px;display:flex;gap:18px;flex-shrink:0;font-weight:800';f.innerHTML='<a href="#" id="howPriv" style="color:#fff">🔒 Privacy</a><a href="#" id="howSup" style="color:#fff">💬 Support</a>';
+      $('bHowBack').before(f);$('howPriv').onclick=e=>{e.preventDefault();G.openLink(BUILD.privacyUrl)};$('howSup').onclick=e=>{e.preventDefault();G.openLink(BUILD.supportUrl)}}}})}
+// offline play + durable storage (web/PWA; harmless inside a native wrapper)
+if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(e=>console.warn('sw',e)));
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persisted().then(p=>p||navigator.storage.persist()).catch(()=>{});
 /* ===================== BOOT ===================== */
 G.hook('init');requestAnimationFrame(frame);
 </script></body></html>
