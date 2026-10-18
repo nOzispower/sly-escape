@@ -320,6 +320,8 @@ Object.assign(CHASERS,{
  To hand-make any level instead, put an object in LEVEL_OVERRIDES[levelNumber]. */
 const THEMES=[
  {name:'Meadow',   ground:['#9be86a','#8bdc5a'],mix:{chick:3,duck:2,cat:3,dog:3,sheep:2,crop:2,pumpkin:1,fence:1,cow:1}},
+ {name:'Snowy Farm',ground:['#eef4ff','#dde8f8'],mix:{sheep:4,dog:3,cat:2,goat:2,horse:1,cow:1,snowball:4,pine:2,hay:1,silo:0.4}},
+ {name:'Night Farm',ground:['#4a7a6a','#3f6c5e'],night:true,mix:{cat:4,dog:3,sheep:2,pig:2,cow:1,horse:1,lantern:3,hay:1,tractor:1,barn:0.4}},
  {name:'Pond',     ground:['#8fe0a0','#7fd290'],layout:'pond',place:{duck:'water'},style:{rows:'pond',path:null,deco:'tufts',border:['#6a4a2a','#d8c090']},
    mix:{duck:3,duckling:3,dragonfly:2,lilypad:4,frog:3,fish:3,lilyflower:2,cattail:3,turtle:2,rock:1.5,cat:1,dog:1,sheep:1,heron:1,rowboat:0.8,dock:0.5,boathouse:0.3,horse:0.4}},
  {name:'Orchard',  ground:['#a8e870','#98da60'],layout:'orchard',style:{rows:'orchard',path:null,deco:'tufts',border:['#8a5520','#e0a860']},
@@ -331,8 +333,6 @@ const THEMES=[
    mix:{chick:3,hen:2.5,henbrown:1.5,horseshoe:1.5,feedbucket:2,piglet:2,milkpail:2,watertrough:1.5,saddle:1,cat:1,dog:1,goat:1.5,sheep:2,pig:1.5,bale:1.5,tire:1,feedtrough:1,stall:0.6,cow:1.5,horse:1,coop:0.5,silo:0.35,stable:0.35,bigbarn:0.3}},
  {name:'Vineyard', ground:['#cdc274','#bfb466'],layout:'vine',style:{rows:'vine',path:null,deco:'none',border:['#6a3a1a','#e8c070']},
    mix:{vgrape:3,vgrapeg:2,vcluster:3,vclusterg:2,vshears:1.5,vbird:2,vcan:1.5,vlug:2,vstake:2,vcrate:1.5,cat:1,dog:1,goat:1,vbarrel:1.5,vstomp:0.8,vbarrels:0.8,vtrellis:1,vcart:0.7,horse:0.5,vpress:0.5,vstand:0.4,villa:0.3}},
- {name:'Snowy Farm',ground:['#eef4ff','#dde8f8'],mix:{sheep:4,dog:3,cat:2,goat:2,horse:1,cow:1,snowball:4,pine:2,hay:1,silo:0.4}},
- {name:'Night Farm',ground:['#4a7a6a','#3f6c5e'],night:true,mix:{cat:4,dog:3,sheep:2,pig:2,cow:1,horse:1,lantern:3,hay:1,tractor:1,barn:0.4}},
  {name:'Harvest Fair',ground:['#ffd98a','#f5cc78'],mix:{chick:2,cat:3,dog:3,pig:2,sheep:2,cow:1,horse:1,balloon:4,pumpkin:2,wagon:1,tractor:0.6,barn:0.4}},
  {name:'Giant Ranch',ground:['#b8e070','#a8d260'],mix:{dog:3,cat:2,sheep:3,goat:2,pig:2,cow:2,horse:2,hay:2,tree:1,tractor:1,silo:0.6,barn:0.6}},
 ];
@@ -1403,9 +1403,17 @@ else $('hTime').style.display='none';
 G.getAC=()=>{if(!G.ac)try{G.ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}else if(G.ac.state==='suspended')G.ac.resume();return G.ac};
 G.worldOf=(i)=>Math.floor((i??G.li??0)/10);
 // per-world SFX palette: [wave, base pitch, slide, win arpeggio]
-const WORLD_SFX=[['triangle',520,-300,[523,659,784,1046]],['sine',440,-200,[392,494,587,784]],['square',600,-350,[587,740,880,1175]],['triangle',380,-250,[349,440,523,698]],
- ['sawtooth',460,-280,[440,554,659,880]],['sine',500,-150,[494,622,740,988]],['triangle',900,-500,[1047,1319,1568,2093]],['sine',330,-120,[262,330,392,523]],
- ['square',560,-400,[659,784,988,1319]],['sawtooth',360,-300,[330,415,494,659]]];
+const WORLD_SFX=[ // per farm world, same order as THEMES
+ ['triangle',520,-300,[523,659,784,1046]],
+ ['triangle',900,-500,[1047,1319,1568,2093]],
+ ['sine',330,-120,[262,330,392,523]],
+ ['sine',440,-200,[392,494,587,784]],
+ ['square',600,-350,[587,740,880,1175]],
+ ['triangle',380,-250,[349,440,523,698]],
+ ['sawtooth',460,-280,[440,554,659,880]],
+ ['sine',500,-150,[494,622,740,988]],
+ ['square',560,-400,[659,784,988,1319]],
+ ['sawtooth',360,-300,[330,415,494,659]]];
 if(FEATURES.sound){let ac=null,muted=localStorage.getItem('slyescape.mute')==='1';
   const tone=(f,d,type='sine',v=0.15,slide=0)=>{if(muted||!ac)return;const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime;o.type=type;o.frequency.setValueAtTime(f,t);
     if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(30,f+slide),t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(0.001,t+d);o.connect(g).connect(ac.destination);o.start(t);o.stop(t+d)};
@@ -1420,15 +1428,15 @@ if(FEATURES.sound){let ac=null,muted=localStorage.getItem('slyescape.mute')==='1
 if(FEATURES.music){
   // per world: tempo, root note (Hz), scale (semitones), lead wave, bass wave, feel
   const SONGS=[{bpm:120,root:262,scale:[0,2,4,7,9],lead:'triangle',bass:'triangle',pluck:true}, // Meadow: banjo-ish pentatonic pluck
-   {bpm:84, root:220,scale:[0,2,4,7,9],lead:'sine',bass:'sine'},                                     // Pond: calm
-   {bpm:110,root:294,scale:[0,2,4,5,7,9,11],lead:'triangle',bass:'triangle',pluck:true},              // Orchard
-   {bpm:100,root:196,scale:[0,3,5,7,10],lead:'square',bass:'triangle'},                                // Pumpkin: spooky-fun minor
-   {bpm:126,root:247,scale:[0,2,4,7,9],lead:'square',bass:'triangle',pluck:true},                     // Barnyard hoedown
-   {bpm:92, root:233,scale:[0,2,4,5,7,9],lead:'sine',bass:'triangle'},                                 // Vineyard waltz-ish
-   {bpm:116,root:523,scale:[0,2,4,7,9],lead:'sine',bass:'triangle',bell:true},                        // Snowy: jingly bells
-   {bpm:72, root:175,scale:[0,3,5,7,10],lead:'sine',bass:'sine'},                                      // Night: mellow
-   {bpm:132,root:277,scale:[0,2,4,5,7,9,11],lead:'square',bass:'triangle',pluck:true},                // Harvest fair
-   {bpm:108,root:208,scale:[0,2,4,7,9],lead:'sawtooth',bass:'triangle'}];                             // Giant ranch
+   {bpm:116,root:523,scale:[0,2,4,7,9],lead:'sine',bass:'triangle',bell:true}, // Snowy: jingly bells
+   {bpm:72, root:175,scale:[0,3,5,7,10],lead:'sine',bass:'sine'}, // Night: mellow
+   {bpm:84, root:220,scale:[0,2,4,7,9],lead:'sine',bass:'sine'}, // Pond: calm
+   {bpm:110,root:294,scale:[0,2,4,5,7,9,11],lead:'triangle',bass:'triangle',pluck:true}, // Orchard
+   {bpm:100,root:196,scale:[0,3,5,7,10],lead:'square',bass:'triangle'}, // Pumpkin: spooky-fun minor
+   {bpm:126,root:247,scale:[0,2,4,7,9],lead:'square',bass:'triangle',pluck:true}, // Barnyard hoedown
+   {bpm:92, root:233,scale:[0,2,4,5,7,9],lead:'sine',bass:'triangle'}, // Vineyard waltz-ish
+   {bpm:132,root:277,scale:[0,2,4,5,7,9,11],lead:'square',bass:'triangle',pluck:true}, // Harvest fair
+   {bpm:108,root:208,scale:[0,2,4,7,9],lead:'sawtooth',bass:'triangle'}]; // Giant ranch
   const VOL=0.045;let on=localStorage.getItem('slyescape.musicMute')!=='1',master=null,timer=null,next=0,step=0,song=null,pat=null;
   function makePattern(seed){let x=seed*9301+49297;const r=()=>((x=(x*9301+49297)%233280)/233280);return Array.from({length:32},(_,i)=>i%4===3&&r()<0.5?null:Math.floor(r()*5)+(i%8<4?0:2))}
   function note(f,t,d,type,v){const ac=G.ac,o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+0.01);
