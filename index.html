@@ -121,6 +121,7 @@ const FEATURES={
   coins:true,        // coins earned per level, saved
   levelSelect:true,  // level select screen
   boosters:true,     // tap-to-use Magnet booster (costs coins if coins on)
+  buyTime:true,      // spend coins for more time: 'Keep going?' +15s when the timer runs out, '+10s start' boost on Get Ready (PRICES.buyTime)
   farmer:true,       // a friendly farmer chases your head; swallow him late for a bonus
   howToPlay:true,    // 'How to Play' guide screen from the main menu
   store:true,        // Store: buy extra maps, heads and chasers with coins
@@ -178,6 +179,9 @@ const PRICES={
     {sku:'com.slyescape.coins.xlarge',name:'Treasure Chest',  icon:'🧰',usd:9.99, coins:6500, bonus:30},
     {sku:'com.slyescape.coins.mega',  name:'Dragon Hoard',    icon:'👑',usd:19.99,coins:15000,bonus:50,badge:'Best value'}],
   starterPack:{sku:'com.slyescape.starter',name:'Starter Pack',icon:'🎁',usd:1.99,coins:1000,heads:['wolf'],chasers:['ninja'],oneTime:true},
+  // buy time with coins (FEATURES.buyTime). Planning rate ~60 coins/level: the 1st continue costs about one level's earnings,
+  // and a win after a continue is capped at 2 stars (=fewer coins), so buying time is never a profit and can't be farmed.
+  buyTime:{continueSecs:15,continueCost:[50,100,200],maxContinues:3,offerSecs:10,graceSecs:3,boostSecs:10,boostCost:30},
   existingSaveGrant:200, // one-time coins for testers whose old (pre-pricing) save had its unlocks reset
   _oldHoleRefund:250,    // legacy save migration (old hole skins)
 };
@@ -2584,7 +2588,7 @@ function buildGround(L){const S=1.5,W=L.size[0],H=L.size[1],c=document.createEle
   G.groundCv=c;G.groundFor=L;G.groundHF=FEATURES.hiFiGraphics}
 let last=performance.now();
 function frame(now){const dt=Math.min(0.05,(now-last)/1000);if(FEATURES.hiFiGraphics&&G.state==='play')GFX.frameTime(now-last);last=now;G.t+=dt;
-  if(G.state==='play')update(dt);if(G.state==='play'||G.state==='end')render();
+  if(G.state==='play')update(dt);if(G.state==='play'||G.state==='end'||G.state==='pause')render();
   $('hScore').textContent=G.score||0;$('barFill').style.width=G.L?(G.progress()*100).toFixed(1)+'%':'0';
   requestAnimationFrame(frame)}
 G.step=(sec)=>{for(let t=0;t<sec&&G.state==='play';t+=1/60)update(1/60);render()}; // test helper
@@ -2708,7 +2712,7 @@ G.timePop=(txt)=>{const t=$('hTime'),r=t.getBoundingClientRect(),d=document.crea
 // --- TIMER ---
 if(FEATURES.timer)G.use({
   levelStart(G){$('hTime').style.display=''},
-  update(G,dt){G.timeLeft-=dt;if(G.timeLeft<=0){G.timeLeft=0;G.endLevel(G.progress()>=1)}
+  update(G,dt){G.timeLeft-=dt;if(G.timeLeft<=0){G.timeLeft=0;if(G.progress()>=1||!(G.buyTime&&!G.auto&&G.buyTime.offer()))G.endLevel(G.progress()>=1)}
     $('hTime').textContent='⏱ '+Math.ceil(G.timeLeft);$('hTime').style.color=G.timeLeft<10?'#ff5a7a':'#fff'}});
 else $('hTime').style.display='none';
 // --- SOUND ---
@@ -2837,8 +2841,8 @@ if(FEATURES.popText)G.use({swallow(G,o){G.addFx({x:G.hole.x,y:G.hole.y,t:0,life:
   draw(c,f){const[sx,sy]=G.toScreen(f.x,f.y);c.globalAlpha=1-f.t/f.life;c.font='900 '+(f.big?30:20)+'px system-ui';c.textAlign='center';c.lineWidth=4;c.strokeStyle='#2a0f6b';
     const y=sy-G.hole.r*G.zoom()-f.t*60;c.strokeText(f.txt,sx,y);c.fillStyle=f.big?'#ffe14d':'#fff';c.fillText(f.txt,sx,y);c.globalAlpha=1}})}});
 // --- STARS ---
-if(FEATURES.stars)G.use({levelEnd(G,r){if(!r.win)return;const frac=G.eaten/G.total,tf=FEATURES.timer?G.timeLeft/G.L.time:0.5;
-  r.stars=1+(frac>0.8||tf>0.35?1:0)+(frac>0.95||tf>0.55?1:0)}});
+if(FEATURES.stars)G.use({levelEnd(G,r){if(!r.win)return;const frac=G.eaten/G.total,tf=FEATURES.timer?G.timeLeft/(G.L.time+(G.buyTime?G.buyTime.bought():0)):0.5; // bought seconds don't buy stars
+  r.stars=1+(frac>0.8||tf>0.35?1:0)+(frac>0.95||tf>0.55?1:0);if(G.buyTime&&G.buyTime.used())r.stars=Math.min(2,r.stars)}});
 // --- COINS ---
 if(FEATURES.coins)G.use({init(G){G.coinEl=G.ui.extra('hCoins')},levelStart(G){G.coinEl.textContent='🪙 '+G.save.coins},
   levelEnd(G,r){if(!r.win)return;const c=10*r.stars+Math.floor(r.score/100);G.save.coins+=c;r.msg+='+'+c+' 🪙 (total '+G.save.coins+')'}});
@@ -3181,6 +3185,7 @@ if(FEATURES.howToPlay){
    ['⏱️','Timer & stars','Beat the goal before time runs out. Finish fast or clear lots for up to <b>★★★</b>.'],
    ['🔥','Combos','Gobble things quickly one after another for a COMBO — keep the streak bar full: Nice → Great → Awesome → INSANE → LEGENDARY (bonus coins!).'],
    ['🪙','Coins & Magnet','Win levels to earn coins. Tap <b>🧲</b> (20 coins) to pull nearby small things into your mouth for 5 seconds.'],
+   ['⏰','Need more time?','When the clock runs out you can <b>Keep going</b> for +15 seconds with coins (up to 3 times; a win after that gets at most ★★). On Get Ready you can also start with <b>+10s</b>.'],
    ['farmer','Watch out for the farmer!','He chases you waving a pitchfork. Each catch stuns your head briefly and costs time, getting worse each time: <b>-1s, -2s, -3s…</b> (resets every level). On gold <b>★ Bonus</b> levels a catch costs the time <b>and</b> shrinks your head a little!'],
    ['🐑','Turn the tables','Late in a level, once you are big, he panics, grabs an animal and runs. Gobble him and his animal for a <b>+500 FARMER BONUS</b>!'],
    ['🌍','Worlds & bonus levels','10 farm worlds with 10 levels each — meadow to giant ranch. Every 10th level is a gold <b>★ Bonus</b> level with its own upbeat music.'],
@@ -3282,7 +3287,7 @@ if(FEATURES.store){
     for(const p of PRICES.coinPacks)list.appendChild(pack(p,false));
     const n=document.createElement('div');n.className='dim';n.style.cssText='grid-column:1/-1;font-size:12px;text-align:center';n.textContent='Coins are also earned free by winning levels. Ask a grown-up before buying.';list.appendChild(n)}
   scr.querySelectorAll('.stTabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()});if($('stGet'))$('stGet').onclick=()=>{tab='coins';render();scr.scrollTop=0};G.IAP=IAP;window.IAP=IAP;IAP.init();
-  $('stBack').onclick=()=>{back==='sSelect'?(G.renderSelect(),G.show('sSelect')):back==='sLoad'&&G.loadout?G.loadout.open(G.loadout.level):G.show(back)};
+  $('stBack').onclick=()=>{if(G.store.ret){const f=G.store.ret;G.store.ret=null;f();return}back==='sSelect'?(G.renderSelect(),G.show('sSelect')):back==='sLoad'&&G.loadout?G.loadout.open(G.loadout.level):G.show(back)};
   G.use({init(G){const b=document.createElement('button');b.className='btn';b.id='bStore';b.textContent='🛒 Store';$('menuExtra').prepend(b);b.onclick=()=>{G.hook('userGesture');G.store.open()}},
     levelEnd(){if(G.coinEl)G.coinEl.textContent='🪙 '+S.coins}})}
 // --- LOADOUT ('Get Ready' screen: choose head + chaser before a level) ---
@@ -3314,6 +3319,64 @@ if(FEATURES.loadout){
       setTimeout(()=>{for(const r of[hr,cr]){const s=r.querySelector('.sel');if(s)r.scrollLeft=s.offsetLeft-r.offsetLeft-10}},0)},
     play(){G.startLevel(this.level)}};
   $('ldPlay').onclick=()=>{G.hook('userGesture');G.loadout.play()};$('ldBack').onclick=()=>{G.renderSelect();G.show('sSelect')};}
+// --- BUY TIME (FEATURES.buyTime): 'Keep going?' continue when the timer runs out + '+10s start' boost on Get Ready. Prices/rules: PRICES.buyTime ---
+if(FEATURES.buyTime&&FEATURES.timer&&FEATURES.coins){const P=PRICES.buyTime,S=G.save;
+  const css=document.createElement('style');css.textContent=`
+#ctPanel{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 45%,#2a0f6b88,#0a0420e0)}#ctPanel.on{display:flex}
+.ctBox{background:linear-gradient(#8a4cff,#4a1aa8);border:3px solid #fff9;border-radius:26px;padding:16px 22px 12px;width:300px;text-align:center;color:#fff;display:flex;flex-direction:column;gap:9px;align-items:center;box-shadow:0 14px 44px #000a;animation:ctIn .38s cubic-bezier(.2,1.6,.4,1)}
+@keyframes ctIn{from{transform:scale(.55) rotate(-4deg);opacity:0}}
+.ctRing{position:relative;width:104px;height:104px;margin-top:-60px;filter:drop-shadow(0 6px 10px #0007)}.ctRing svg{width:104px;height:104px;transform:rotate(-90deg)}
+.ctRing circle{stroke-width:10}.ctRing .bg{fill:#2a0f6b;stroke:#ffffff2a}.ctRing .fg{fill:none;stroke:#ffe14d;stroke-linecap:round;stroke-dasharray:326.7;transition:stroke .2s}
+.ctIc{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:46px;animation:ctWob .45s infinite alternate ease-in-out}@keyframes ctWob{from{transform:rotate(-10deg)}to{transform:rotate(10deg) scale(1.06)}}
+.ctN{position:absolute;right:-10px;bottom:-2px;background:#ff3b6b;border:2px solid #fff;border-radius:999px;font:900 13px system-ui;padding:2px 8px}
+#ctPanel h2{font-size:32px;margin:0;color:#ffe14d;text-shadow:0 3px 0 #ff2fa0,0 6px 14px #0007}.ctSub{font-weight:900;font-size:18px;margin-top:-6px}
+.ctProg{position:relative;width:100%;height:22px;border-radius:11px;background:#0005;overflow:hidden;border:2px solid #ffffff40}.ctProg i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#5dff9a,#14b35c);border-radius:9px}.ctProg span{position:relative;font:900 12px/18px system-ui;text-shadow:0 1px 2px #0008}
+#ctPanel .btn{width:100%;padding:11px 0;min-width:0}#ctYes{font-size:23px}#ctYes small{display:block;font-size:14px;opacity:.95;margin-top:1px}#ctYes.off{filter:grayscale(.7) brightness(.8)}#ctGet{font-size:18px}
+.ctCoins{font:800 13px system-ui;opacity:.85}.ctNo{border:0;background:none;color:#fff;font:800 16px system-ui;text-decoration:underline;opacity:.8;padding:2px 10px 4px}
+#ctCount{position:fixed;inset:0;z-index:19;display:none;align-items:center;justify-content:center;pointer-events:none}#ctCount.on{display:flex}
+#ctCount b{font:900 130px system-ui;color:#ffe14d;-webkit-text-stroke:7px #2a0f4b;paint-order:stroke fill;text-shadow:0 9px 0 #ff2fa0,0 14px 30px #0008;animation:ctPop .6s ease-out both}@keyframes ctPop{0%{transform:scale(2.2);opacity:0}25%{transform:scale(1);opacity:1}80%{opacity:1}100%{transform:scale(.7);opacity:0}}
+.ldBoost{display:flex;align-items:center;gap:10px;width:100%;max-width:420px;border:3px solid #ffffff30;border-radius:16px;background:#ffffff1c;color:#fff;padding:9px 12px;font:900 16px system-ui;text-align:left;flex-shrink:0}
+.ldBoost .bi{font-size:28px}.ldBoost .bt{flex:1}.ldBoost .bt small{display:block;font-size:12px;opacity:.8;font-weight:700}.ldBoost .tg{border-radius:999px;padding:6px 12px;background:#ffffff33;font-size:14px}
+.ldBoost.on{border-color:#ffe14d;background:#ffe14d33;box-shadow:0 0 14px #ffe14d88}.ldBoost.on .tg{background:linear-gradient(#5dff9a,#14b35c)}`;
+  document.head.appendChild(css);
+  const pn=document.createElement('div');pn.id='ctPanel';pn.innerHTML='<div class="ctBox"><div class="ctRing"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="bg"/><circle cx="60" cy="60" r="52" class="fg" id="ctArc"/></svg><div class="ctIc">⏰</div><div class="ctN" id="ctN"></div></div>'+
+    '<h2>Time&#39;s up!</h2><div class="ctSub">Keep going?</div><div class="ctProg"><i id="ctBar"></i><span id="ctPct"></span></div><button class="btn" id="ctYes"></button><button class="btn alt" id="ctGet">🪙 Get Coins</button><div class="ctCoins" id="ctCoins"></div><button class="ctNo" id="ctNo">No thanks</button></div>';
+  document.body.appendChild(pn);const cd=document.createElement('div');cd.id='ctCount';document.body.appendChild(cd);
+  let used=0,bought=0,boostSecs=0,boostOn=false,pendingBoost=false,left=0,last=0,raf=0,away=false;
+  const cost=()=>P.continueCost[Math.min(used,P.continueCost.length-1)],fmt=n=>n.toLocaleString('en-US');
+  const beep=(f,d,t,v,s)=>G.sfx&&G.sfx(f,d,t||'triangle',v||0.1,s||0);
+  function paint(){const c=cost(),can=S.coins>=c;$('ctYes').innerHTML='+'+P.continueSecs+'s<small>🪙 '+fmt(c)+'</small>';$('ctYes').classList.toggle('off',!can);
+    $('ctGet').style.display=!can&&FEATURES.coinShop&&G.store?'':'none';$('ctCoins').textContent='You have 🪙 '+fmt(S.coins)+(can?'':' · need '+fmt(c-S.coins)+' more');
+    $('ctN').textContent=(P.maxContinues-used)+' left';const pr=Math.min(1,G.progress());$('ctBar').style.width=Math.round(pr*100)+'%';$('ctPct').textContent=Math.round(pr*100)+'% of the goal';}
+  function ring(){const k=Math.max(0,left/P.offerSecs);const a=$('ctArc');a.style.strokeDashoffset=(326.7*(1-k)).toFixed(1);a.style.stroke=left<3?'#ff4a5a':'#ffe14d'}
+  function loop(now){raf=0;if(!pn.classList.contains('on'))return;const dt=Math.min(0.1,(now-last)/1000);last=now;if(!away){const s0=Math.ceil(left);left-=dt;if(Math.ceil(left)<s0&&left>0&&left<3.5)beep(660,0.08,'square',0.05);if(left<=0){G.buyTime.decline();return}}ring();raf=requestAnimationFrame(loop)}
+  function open(){paint();left=Math.max(left,P.offerSecs*0.5);pn.classList.add('on');last=performance.now();ring();if(!raf)raf=requestAnimationFrame(loop)}
+  function close(){pn.classList.remove('on');away=false}
+  function countdown(done){const seq=['3','2','1','GO!'];let i=0;cd.classList.add('on');const step=()=>{if(i>=seq.length){cd.classList.remove('on');cd.innerHTML='';done();return}
+      cd.innerHTML='<b>'+seq[i]+'</b>';beep(i<3?523:1046,i<3?0.12:0.28,'triangle',0.11,i<3?0:200);i++;setTimeout(step,i<4?600:420)};step()}
+  G.buyTime={P,used:()=>used,bought:()=>bought+boostSecs,boostOn:()=>boostOn,
+    offer(){if(used>=P.maxContinues||G.over||G.state!=='play')return false;G.state='pause';G.input.active=false;left=P.offerSecs;
+      beep(392,0.22,'sawtooth',0.07,-120);setTimeout(()=>beep(294,0.3,'sawtooth',0.07,-100),180);open();return true},
+    accept(){if(!pn.classList.contains('on'))return false;const c=cost();if(S.coins<c){if(FEATURES.coinShop&&G.store)$('ctGet').animate([{transform:'scale(1.08)'},{transform:'scale(1)'}],{duration:300});else G.toast('Not enough coins');return false}
+      S.coins-=c;G.persist();G.hook('coinsChanged');used++;bought+=P.continueSecs;G.timeLeft+=P.continueSecs;close();if(G.coinEl)G.coinEl.textContent='🪙 '+S.coins;
+      $('hTime').textContent='⏱ '+Math.ceil(G.timeLeft);$('hTime').style.color='#fff';G.timePop('+'+P.continueSecs+'s');[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.16),i*70));HEAD_ST.chew=0.6;
+      countdown(()=>{if(G.over||G.state!=='pause')return;for(const o of G.objs)if(o.id==='farmer')o.cool=Math.max(o.cool||0,P.graceSecs);G.hole.stun=0;G.graceUntil=G.elapsed+P.graceSecs;G.state='play';G.hook('continued',used)});return true},
+    decline(){if(!pn.classList.contains('on')&&G.state!=='pause')return;close();if(!G.over){G.state='play';G.endLevel(G.progress()>=1)}},
+    getCoins(){if(!G.store)return;away=true;pn.classList.remove('on');G.store.ret=()=>{G.show(null);away=false;open()};G.store.open('coins')}};
+  $('ctYes').onclick=()=>G.buyTime.accept();$('ctNo').onclick=()=>G.buyTime.decline();$('ctGet').onclick=()=>G.buyTime.getCoins();
+  // '+10s start' on Get Ready (charged when PLAY is pressed; one-shot for that attempt; Retry does not repeat it)
+  function renderBoost(){const el=$('ldBoost');if(!el)return;el.className='ldBoost'+(boostOn?' on':'');
+    el.innerHTML='<span class="bi">⏱️</span><span class="bt">+'+P.boostSecs+'s start time<small>One-time for this try · 🪙 '+fmt(P.boostCost)+'</small></span><span class="tg">'+(boostOn?'ON':'OFF')+'</span>'}
+  if(G.loadout){const sc=$('sLoad'),b=document.createElement('button');b.id='ldBoost';$('ldPlay').before(b);
+    b.onclick=()=>{if(!boostOn&&S.coins<P.boostCost){if(FEATURES.coinShop&&G.store)G.store.confirm('Not enough coins','The +'+P.boostSecs+'s boost costs <b>🪙 '+P.boostCost+'</b>. You have 🪙 '+fmt(S.coins)+'.',()=>G.store.open('coins'),null,'🪙 Get Coins');else G.toast('Not enough coins');return}
+      boostOn=!boostOn;beep(boostOn?880:440,0.12);renderBoost()};
+    const oo=G.loadout.open.bind(G.loadout),op=G.loadout.play.bind(G.loadout);
+    G.loadout.open=function(i){if(i!==this.level)boostOn=false;oo(i);renderBoost()};
+    G.loadout.play=function(){if(boostOn&&S.coins>=P.boostCost){S.coins-=P.boostCost;G.persist();G.hook('coinsChanged');pendingBoost=true}boostOn=false;op()};
+    $('ldBack').addEventListener('click',()=>{boostOn=false})}
+  G.use({levelStart(G){used=0;bought=0;boostSecs=0;close();cd.classList.remove('on');G.graceUntil=0;
+      if(pendingBoost){pendingBoost=false;boostSecs=P.boostSecs;G.timeLeft+=P.boostSecs;setTimeout(()=>{if(G.state==='play')G.timePop('+'+P.boostSecs+'s')},350)}},
+    levelEnd(G,r){close();if(used&&r.win)r.msg=(r.msg||'')+' · ⏱ continue used (max ★★)'}})}
 // --- LEADERBOARD (local stub; replace save/load with server calls later) ---
 if(FEATURES.leaderboard){const KEY='slyescape.lb';
   G.leaderboard={load:()=>JSON.parse(localStorage.getItem(KEY)||'[]'),submit(name,score,level){const l=this.load();l.push({name,score,level,at:Date.now()});l.sort((a,b)=>b.score-a.score);localStorage.setItem(KEY,JSON.stringify(l.slice(0,20)))}};
