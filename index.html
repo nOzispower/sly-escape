@@ -64,7 +64,7 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .pill{background:#0007;border-radius:14px;padding:5px 12px;font-size:17px;white-space:nowrap}
 #bar{height:16px;background:#0007;border-radius:10px;margin-top:8px;overflow:hidden;border:2px solid #fff8}
-#barFill{height:100%;width:0;background:linear-gradient(90deg,#ff2fa0,#ffcf33);transition:width .2s}
+#barFill{height:100%;width:100%;transform:scaleX(0);transform-origin:0 50%;will-change:transform;background:linear-gradient(90deg,#ff2fa0,#ffcf33);transition:transform .2s}
 #tools{position:fixed;right:10px;bottom:calc(env(safe-area-inset-bottom) + 12px);display:flex;gap:8px;z-index:4}
 .ic{width:52px;height:52px;border-radius:50%;border:0;background:#0008;color:#fff;font-size:24px;font-weight:900}
 .stars{font-size:44px;letter-spacing:6px;color:#ffe14d;text-shadow:0 3px 0 #b37b00}
@@ -104,7 +104,7 @@ const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fai
  release:true for App Store / Google Play builds: forces unlockAll off, ignores ?dev=1 (no tester mode),
  and hides the coin shop unless a real billing provider (window.SlyBilling) is attached, so TEST banners never ship.
  Bump version/build for every store upload (also bump CACHE in sw.js so the offline copy updates). */
-const BUILD={version:'1.0.0',build:2,release:false,
+const BUILD={version:'1.0.0',build:3,release:false,
   supportEmail:'slyescape@mail.grokbot.com',privacyUrl:'privacy.html',supportUrl:'support.html'};
 const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
@@ -2317,7 +2317,7 @@ const GFX=(()=>{
     // contact AO + long soft cast shadow
     if(T.shape==='farmer')o.ck=((o.ch&&o.ch.id)||'farmer')+(o.edible?'E':'');
     if(T.draw&&T.shape!=='farmer'){ctx.drawImage(AO,sx0-rr*1.05,sy0-rr*0.34,rr*2.1,rr*0.68);if(OPT.live)live(o,sx0,sy0,z*k,rr,hh);else drawObj(o,sx0,sy0,z*k,1);return}
-    const e=sprite(o,rr),q=rr/e.rq,sway=isPlant(T)?Math.sin(G.t*1.6+o.x*0.013)*0.05:0;
+    const e=sprite(o,rr),q=rr/e.rq;o._spr=e;o._sq=q/(z*k);const sway=isPlant(T)?Math.sin(G.t*1.6+o.x*0.013)*0.05:0;
     if(OPT.cast&&rr>7&&T.shape!=='animal'&&!T.wander&&T.h>o.size*0.7){ctx.save();ctx.translate(sx0,sy0);ctx.globalAlpha=0.32;ctx.transform(q,0,-0.62*q,-0.24*q,0,0);ctx.drawImage(e.s,-e.half,-e.top-0,e.half*2,(e.top+e.bot));ctx.restore()}
     ctx.save();ctx.translate(sx0,sy0);if(o.wob)ctx.rotate(Math.sin(o.wob)*0.08);if(sway)ctx.transform(1,0,sway,1,0,0);ctx.scale(q,q);ctx.drawImage(e.c,-e.half,-e.top,e.half*2,e.top+e.bot);ctx.restore();
     if(T._glow===undefined)T._glow=GLOWK.test((T.id||'')+'|'+(T.name||''))||/[⭐🌟💡🏮✨💎⚡🔦🕯🔮👻🛸]/u.test(T.glyph||'');
@@ -2493,7 +2493,8 @@ function render(){
   const sk=G.skin();drawHoleBase(ctx,hx,hy,hr,ry,sk,G.t,h.stun>0);
   // falling objects get pulled into the mouth (drawn just before the head, see y-sort below)
   const drawHead=()=>{const[mx2,my2]=mouthPoint(hx,hy,hr);
-    for(const o of G.falling){const[sx,sy]=G.toScreen(o.x,o.y);const k=Math.min(1,o.t/0.45),e=k*k*(3-2*k);ctx.save();ctx.translate(sx+(mx2-sx)*e,sy+(my2-sy)*e-Math.sin(k*Math.PI)*hr*0.3);ctx.rotate(k*Math.PI*(o.face||1)*Math.sign(HEAD_ST.fx));drawObj(o,0,0,z,Math.max(0.05,1-e*0.9));ctx.restore()}
+    for(const o of G.falling){const[sx,sy]=G.toScreen(o.x,o.y);const k=Math.min(1,o.t/0.45),e=k*k*(3-2*k);ctx.save();ctx.translate(sx+(mx2-sx)*e,sy+(my2-sy)*e-Math.sin(k*Math.PI)*hr*0.3);ctx.rotate(k*Math.PI*(o.face||1)*Math.sign(HEAD_ST.fx));const sh=Math.max(0.05,1-e*0.9),sp=o._spr; // reuse the object's cached sprite while it falls in (live vector redraw each frame was costly on phones)
+      if(sp){const q=o._sq*z*sh;ctx.scale(q,q);ctx.drawImage(sp.c,-sp.half,-sp.top,sp.half*2,sp.top+sp.bot)}else drawObj(o,0,0,z,sh);ctx.restore()}
     if(HF)GFX.head(c=>drawHoleOver(c,hx,hy,hr,ry,sk,G.t,HEAD_ST,h.stun>0),hx,hy,hr);else drawHoleOver(ctx,hx,hy,hr,ry,sk,G.t,HEAD_ST,h.stun>0)};
   // objects sorted by y
   const list=G.objs.slice();list.push({_head:true,y:h.y+0.01});list.sort((a,b)=>a.y-b.y);
@@ -2589,8 +2590,10 @@ function buildGround(L){const S=1.5,W=L.size[0],H=L.size[1],c=document.createEle
 let last=performance.now();
 function frame(now){const dt=Math.min(0.05,(now-last)/1000);if(FEATURES.hiFiGraphics&&G.state==='play')GFX.frameTime(now-last);last=now;G.t+=dt;
   if(G.state==='play')update(dt);if(G.state==='play'||G.state==='end'||G.state==='pause')render();
-  $('hScore').textContent=G.score||0;$('barFill').style.width=G.L?(G.progress()*100).toFixed(1)+'%':'0';
+  // HUD DOM: write only when the value changes; progress bar animates with transform (compositor) instead of width (layout every frame for 0.2s after each swallow)
+  const sc=G.score||0;if(sc!==HUDV.s){HUDV.s=sc;HUDV.se.textContent=sc}const pr=G.L?Math.round(G.progress()*1000)/1000:0;if(pr!==HUDV.p){HUDV.p=pr;HUDV.be.style.transform='scaleX('+pr+')'}
   requestAnimationFrame(frame)}
+const HUDV={s:null,p:null,se:$('hScore'),be:$('barFill')};
 G.step=(sec)=>{for(let t=0;t<sec&&G.state==='play';t+=1/60)update(1/60);render()}; // test helper
 G.stepNoRender=(dt)=>update(dt); // test helper
 /* ---------- input: drag-to-steer (virtual joystick) ---------- */
@@ -2808,6 +2811,10 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
     const sp={c:cv,w,h,ox:w/2,oy:h/2,tw:tw+(word?14:12)};if(TXC.size>40)TXC.delete(TXC.keys().next().value);TXC.set(key,sp);return sp};
   // render the next count's sprite ahead of time (during update, off the draw path) so a new swallow never stalls a frame
   const warm=n=>{const t=tierOf(n);if(t)textSprite('COMBO x'+n,'900 30px system-ui',t,FEATURES.hiFiGraphics&&GFX.quality>=2,false)};
+  // build upcoming "COMBO xN" sprites in idle time between frames (never inside a swallow frame); one per idle slice
+  const IQ=[],ric=window.requestIdleCallback||(f=>setTimeout(f,16));let iqOn=false;
+  const pump=()=>{iqOn=false;const n=IQ.shift();if(n==null)return;warm(n);if(IQ.length){iqOn=true;ric(pump,{timeout:120})}};
+  const warmAhead=(n,k)=>{for(let j=1;j<=k;j++)if(!IQ.includes(n+j))IQ.push(n+j);if(IQ.length>12)IQ.splice(0,IQ.length-12);if(!iqOn){iqOn=true;ric(pump,{timeout:120})}};
   const burst=(n,t,big)=>{n=Math.round(n*qf());if(G.fx.length>CF.maxParticles)n=Math.min(n,4);const[hx,hy]=G.toScreen(G.hole.x,G.hole.y),hr=G.hole.r*G.zoom();
     const cols=[t.glow,t.cols[0],t.cols[1],'#ffffff','#ffe14d'];
     for(let i=0;i<n;i++){const a=Math.random()*6.283,s=(big?160:90)+Math.random()*(big?260:120),k=Math.random();
@@ -2821,9 +2828,9 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
     G.addFx({t:0,life:1.4,draw(c,f){const k=f.t/f.life;c.save();c.globalAlpha=Math.min(1,(1-k)*2.5);c.font='900 22px system-ui';c.textAlign='center';c.lineWidth=5;c.strokeStyle='#5a3a00';c.fillStyle='#ffe14d';const y=G.H*0.2+168-k*14;c.strokeText('+'+n+' 🪙 bonus',G.W/2,y);c.fillText('+'+n+' 🪙 bonus',G.W/2,y);c.restore()}})};
   G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;G.COMBO_FX=CF;
   G.comboShake=()=>shk>0.05&&CF.shake?[(Math.random()-0.5)*2*shk,(Math.random()-0.5)*2*shk]:null;
-  G.use({levelStart(G){G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;pop=shk=flash=0;tierShow=null;const g=FEATURES.hiFiGraphics&&GFX.quality>=2;for(const t of T)textSprite(t.word,'italic 900 34px system-ui',t,g,true);warm(3)},
-  update(G,dt){if((G.comboT-=dt)<=0)G.combo=0;else warm(G.combo+1);pop=Math.max(0,pop-dt*3.2);shk=Math.max(0,shk-dt*shk*7-dt*2);flash=Math.max(0,flash-dt*1.4);if(tierShow&&(tierShow.t+=dt)>1.3)tierShow=null},
-  modifyScore(G,o,p){G.combo++;G.comboMax=Math.max(G.comboMax,G.combo);G.comboT=CF.window;pop=1;G.comboHit=null;
+  G.use({levelStart(G){G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;pop=shk=flash=0;tierShow=null;const g=FEATURES.hiFiGraphics&&GFX.quality>=2;for(const t of T)textSprite(t.word,'italic 900 34px system-ui',t,g,true);IQ.length=0;warmAhead(2,8)},
+  update(G,dt){if((G.comboT-=dt)<=0)G.combo=0;pop=Math.max(0,pop-dt*3.2);shk=Math.max(0,shk-dt*shk*7-dt*2);flash=Math.max(0,flash-dt*1.4);if(tierShow&&(tierShow.t+=dt)>1.3)tierShow=null},
+  modifyScore(G,o,p){G.combo++;warmAhead(G.combo,3);G.comboMax=Math.max(G.comboMax,G.combo);G.comboT=CF.window;pop=1;G.comboHit=null;
     const top=T[T.length-1],t=T.find(x=>x.at===G.combo)||(G.combo>top.at&&(G.combo-top.at)%CF.repeatEvery===0?top:null);if(t)G.comboHit=t;
     return p*(1+(Math.min(CF.maxMult,G.combo)-1)*CF.multStep)},
   swallow(G,o){const t=tierOf(G.combo);if(!t)return;
