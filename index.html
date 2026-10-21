@@ -104,7 +104,7 @@ const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fai
  release:true for App Store / Google Play builds: forces unlockAll off, ignores ?dev=1 (no tester mode),
  and hides the coin shop unless a real billing provider (window.SlyBilling) is attached, so TEST banners never ship.
  Bump version/build for every store upload (also bump CACHE in sw.js so the offline copy updates). */
-const BUILD={version:'1.0.0',build:4,release:false,
+const BUILD={version:'1.0.0',build:5,release:false,
   supportEmail:'slyescape@mail.grokbot.com',privacyUrl:'privacy.html',supportUrl:'support.html'};
 const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
@@ -879,7 +879,10 @@ const Game={
 // balance for PLAYER_SPEED: longer time limits, slightly slower farmer
 LEVELS.forEach(L=>{L.time=Math.round(L.time*LEVEL_TIME_SCALE);if(L.farmer)L.farmer=Math.round(L.farmer*FARMER_SPEED_SCALE)});
 const G=Game;window.HG=Game;G.FEATURES=FEATURES;G.LEVELS=LEVELS;G.OBJECT_TYPES=OBJECT_TYPES;G.MAPS=MAPS;G.CHASERS=CHASERS;G.HOLE_SKINS=HOLE_SKINS;G.HEADS=HEADS;G.HEAD_ST=HEAD_ST;G.drawHead=(c,x,y,r,id,st,t=1)=>{st=st||{};drawHoleBase(c,x,y,r,r*TILT,HEADS[id],t,false,st);drawHoleOver(c,x,y,r,r*TILT,HEADS[id],t,st)};G.STORE_ITEMS=STORE_ITEMS;G.skin=_skinSel;
-function resize(){G.dpr=Math.min(3,devicePixelRatio||1);G.W=innerWidth;G.H=innerHeight;cv.width=G.W*G.dpr;cv.height=G.H*G.dpr}
+/* Render resolution: devicePixelRatio capped at 2 (3x phones drew 2.25x the pixels for no visible gain), times an adaptive
+   render scale G.rs (1 / 0.85 / 0.72) that GFX.frameTime lowers when frames are slow and raises again when there is headroom. */
+G.rs=1;
+function resize(){G.dpr=Math.min(2,devicePixelRatio||1)*G.rs;G.W=innerWidth;G.H=innerHeight;cv.width=Math.round(G.W*G.dpr);cv.height=Math.round(G.H*G.dpr)}
 addEventListener('resize',resize);resize();
 function rnd(a,b){return a+Math.random()*(b-a)}
 G.show=id=>{document.querySelectorAll('.scr').forEach(s=>s.classList.toggle('on',s.id===id));$('hudTop').classList.toggle('on',!id)};
@@ -949,7 +952,9 @@ function update(dt){
   else if(G.objs.filter(o=>!o.noCount).length===0)G.endLevel(G.progress()>=1);
 }
 /* ---------- rendering ---------- */
-G.zoom=()=>Math.min(2.2,Math.max(0.55,(Math.min(G.W,G.H)*0.11)/Math.max(16,G.hole.r)*1.3));
+G.zoomRaw=()=>Math.min(2.2,Math.max(0.55,(Math.min(G.W,G.H)*0.11)/Math.max(16,G.hole.r)*1.3));
+// zoom moves in tiny 1.2% steps (with hysteresis) instead of continuously, so the cached ground tiles stay valid between steps
+{let zq=0;const ST=Math.log(1.012);G.zoom=()=>{const z=G.zoomRaw();if(!zq||Math.abs(Math.log(z/zq))>ST*0.75)zq=z>=2.2?2.2:Math.exp(Math.round(Math.log(z)/ST)*ST);return zq}}
 G.toScreen=(x,y)=>{const z=G.zoom();return[(x-G.cam.x)*z+G.W/2,(y-G.cam.y)*z*TILT+G.H*0.55]};
 function shade(c,a){let r,g,b;if(c[0]==='#'){const n=parseInt(c.slice(1),16);r=n>>16;g=n>>8&255;b=n&255}else{[r,g,b]=(c.match(/\d+/g)||[0,0,0]).map(Number)}const f=v=>Math.max(0,Math.min(255,Math.round(v+a)));return'rgb('+f(r)+','+f(g)+','+f(b)+')'}
 G.shade=shade;
@@ -2450,10 +2455,11 @@ const GFX=(()=>{
     const clouds=NOCLOUD[key(L)]||L.night?[]:[0,1].map(i=>[rn(),rn(),0.75+rn()*0.4]);
     LV={L,W:G.W,H:G.H,ov:null,sky:rgb,bd:bdB,grass,tw,clouds,water:ST.rows==='waves'||ST.rows==='pond'||ST.rows==='ocean',dock:ST.rows==='pond'?POND.dock(L.size[0],L.size[1]):null,pond:ST.rows==='pond'?POND.pts(L.size[0],L.size[1],0.99,40).map(([x,y])=>[x,y+8]):null,rip:ST.rows==='pond'?Array.from({length:9},()=>{const P=POND.geo(L.size[0],L.size[1]);return[P.cx+(rn()-0.5)*P.rx*1.3,P.cy+(rn()-0.5)*P.ry*1.3,rn()*3]}).filter(([x,y])=>POND.f(L.size[0],L.size[1],x,y)<0.85):[],gcol:[shade(G0,-48),shade(G0,18)],steam:ST.rows==='dino'?DINO.pools(L.size[0],L.size[1]):null};return LV}
   function backdrop(L,ax,ay,bx,by,z){const V=level(L);if(ay>0){const px=-(G.cam.x*z*0.35)%900;for(let X=px-900;X<G.W;X+=900)ctx.drawImage(V.bd,X,ay-320+12,900,320)}}
-  let pat=null;
+  let pat=null,patK='';const PM={a:1,b:0,c:0,d:1,e:0,f:0};
   function groundFx(L,ax,ay,bx,by,z){if(!OPT.fx)return;const V=level(L);ctx.save();ctx.beginPath();ctx.rect(ax,ay,bx-ax,by-ay);ctx.clip();
     if(V.water&&OPT.water){if(V.pond){ctx.save();ctx.beginPath();for(const[x,y]of V.pond){const q=G.toScreen(x,y);ctx.lineTo(q[0],q[1])}ctx.closePath();if(V.dock){const D=V.dock;for(const[x,y]of[[D.x-D.w/2-3,D.y0-6],[D.x+D.w/2+3,D.y0-6],[D.x+D.w/2+3,D.y1],[D.x-D.w/2-3,D.y1]]){const q=G.toScreen(x,y);ctx.lineTo(q[0],q[1])}ctx.closePath()}ctx.clip('evenodd')}
-      if(!pat)pat=ctx.createPattern(CAUSTIC,'repeat');ctx.globalCompositeOperation='lighter';for(const[sp,a,sc]of[[14,V.pond?0.11:0.09,1]]){const m=new DOMMatrix().translateSelf(ax+G.t*sp,ay+G.t*sp*0.4).scaleSelf(z*sc,z*sc*TILT);pat.setTransform(m);ctx.globalAlpha=a;ctx.fillStyle=pat;ctx.fillRect(ax,ay,bx-ax,by-ay)}ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
+      const d=ctx.getTransform().a,ck=z+'|'+d;if(!pat||patK!==ck){patK=ck;const pc=mk(Math.round(160*z*d),Math.round(160*z*TILT*d));pc.getContext('2d').drawImage(CAUSTIC,0,0,pc.width,pc.height);pat=ctx.createPattern(pc,'repeat')} // caustics pre-scaled to screen resolution (a scaled pattern fill over the whole screen was ~half the frame on Ocean)
+      ctx.globalCompositeOperation='lighter';{const sp=14,a=V.pond?0.11:0.09;PM.a=PM.d=1/d;PM.e=Math.round((ax+G.t*sp)*d)/d;PM.f=Math.round((ay+G.t*sp*0.4)*d)/d;pat.setTransform(PM);ctx.globalAlpha=a;ctx.fillStyle=pat;ctx.fillRect(ax,ay,bx-ax,by-ay)}ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
       if(V.pond){ctx.lineWidth=1.6;for(const[x,y,ph]of V.rip){const k=((G.t*0.45+ph)%1.6)/1.6,[sx,sy]=G.toScreen(x,y),rr=(6+k*34)*z;ctx.strokeStyle='rgba(255,255,255,'+(0.55*(1-k)).toFixed(3)+')';ctx.beginPath();ctx.ellipse(sx,sy,rr,rr*TILT*0.55,0,0,7);ctx.stroke()}ctx.restore()}}
     if(V.steam&&OPT.water)for(let i=0;i<V.steam.length;i++){const[x,y,rx]=V.steam[i];for(let q=0;q<3;q++){const k=((G.t*0.22+q/3+i*0.37)%1),[px,py]=G.toScreen(x+Math.sin(k*5+i)*rx*0.3,y-k*rx*1.4);const s=(rx*0.4+k*rx*0.7)*z;if(px+s<0||px-s>G.W||py+s<0||py-s>G.H)continue;ctx.globalAlpha=0.32*Math.sin(k*3.14);ctx.drawImage(STEAM,px-s*0.8,py-s*0.7,s*1.6,s*1.4)}ctx.globalAlpha=1}
     // drifting cloud shadows
@@ -2472,7 +2478,13 @@ const GFX=(()=>{
       const bt=ctx.createLinearGradient(0,H,0,H*0.9);bt.addColorStop(0,'rgba(10,0,30,.28)');bt.addColorStop(1,'rgba(10,0,30,0)');V.grads={hz,l,r,bt,E}}
     const g=V.grads;ctx.fillStyle=g.hz;ctx.fillRect(0,0,W,H*0.24);ctx.fillStyle=g.bt;ctx.fillRect(0,H*0.9,W,H*0.1)} // gradients only where non-empty
   // adaptive quality: if real frames stay slow, shed the costliest layers (Q2 full -> Q1 no cast shadows/fx -> Q0 no sprites)
-  let Q=2,slow=0,ema=16.7;function frameTime(ms){if(G.GFX.lockQ||!(ms>0)||ms>200)return;ema+=(ms-ema)*0.05;if(ema>21){if(++slow>120&&Q>0){Q--;slow=0;ema=16.7;apply()}}else slow=Math.max(0,slow-2)}
+  /* adaptive performance: slow frames (avg > 21ms for ~1s) first lower the render resolution (G.rs 1 -> 0.85 -> 0.72, looks nearly
+     the same), and only then the effect quality. One step at a time, with a cool-down, so there is never a run of hitches.
+     Each new level start probes one resolution step back up. */
+  let Q=2,slow=0,ema=16.7;const RS=[1,0.85,0.72];
+  function setRS(v){if(G.rs===v)return;G.rs=v;resize()}
+  function frameTime(ms){if(G.GFX.lockQ||!(ms>0)||ms>200)return;ema+=(ms-ema)*0.05;if(ema>21){if(++slow>60){slow=0;ema=16.7;const i=RS.indexOf(G.rs);if(i<RS.length-1)setRS(RS[i+1]);else if(Q>0){Q--;apply()}}}else slow=Math.max(0,slow-2)}
+  G.use({levelStart(){slow=0;ema=16.7;if(G.GFX.lockQ)return;const i=RS.indexOf(G.rs);if(i>0)setRS(RS[i-1])}});
   function apply(){OPT.cast=OPT.clouds=OPT.water=OPT.grass=OPT.tw=Q>=2?1:0;OPT.sprites=Q>=1?1:0}
   return{light,rim,sprite,bdFor:L=>{const keep=LV;LV=null;try{return level(L).bd}finally{LV=keep}},frameTime,get quality(){return Q},set quality(v){Q=v;apply()},STAT,OPT,depth,obj,head,headShadow,grade,post,backdrop,groundFx,overlay,cacheSize:()=>CACHE.size,clear:()=>CACHE.clear()}})();
 G.GFX=GFX;
@@ -2480,14 +2492,31 @@ G.GFX=GFX;
 const EMOJI={};function emojiSprite(g){if(EMOJI[g])return EMOJI[g];const c=document.createElement('canvas');c.width=c.height=96;const x=c.getContext('2d');x.font='78px "Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif';x.textAlign='center';x.textBaseline='middle';
   x.shadowColor='rgba(43,24,56,.9)';x.shadowBlur=0;for(const[dx,dy]of[[2,0],[-2,0],[0,2],[0,-2]]){x.shadowOffsetX=dx;x.shadowOffsetY=dy;x.fillText(g,48,52)}x.shadowColor='transparent';x.fillText(g,48,52);return EMOJI[g]=c}
 G.emojiSprite=emojiSprite;
+/* Ground tiles: the prerendered ground is cut into 256px tiles at the exact on-screen scale and drawn at whole-pixel
+   positions, so scrolling is a plain copy instead of re-scaling the whole ground image every frame (the main cost when moving).
+   Tiles are rebuilt only when the zoom step, resolution or level changes. */
+const GTILES={key:'',tiles:new Map(),TS:256,
+  draw(L,ax,ay,bx,by){const src=G.groundCv,m=ctx.getTransform(),d=m.a,gx=Math.round(ax*d+m.e),gy=Math.round(ay*d+m.f),gw=Math.round((bx-ax)*d),gh=Math.round((by-ay)*d);
+    const key=L.name+'|'+gw+'|'+gh+'|'+src.width;if(key!==this.key){this.key=key;this.tiles.clear()}
+    const TS=this.TS,kx=gw/src.width,ky=gh/src.height,CW=cv.width,CH=cv.height,i0=Math.max(0,Math.floor(-gx/TS)),j0=Math.max(0,Math.floor(-gy/TS)),i1=Math.min(Math.ceil(gw/TS)-1,Math.floor((CW-gx)/TS)),j1=Math.min(Math.ceil(gh/TS)-1,Math.floor((CH-gy)/TS));
+    ctx.setTransform(1,0,0,1,0,0);
+    for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++){const k=j*4096+i;let t=this.tiles.get(k);
+      if(!t){const w=Math.min(TS,gw-i*TS),h=Math.min(TS,gh-j*TS);t=document.createElement('canvas');t.width=w;t.height=h;t.getContext('2d').drawImage(src,i*TS/kx,j*TS/ky,w/kx,h/ky,0,0,w,h);
+        if(this.tiles.size>140)this.tiles.delete(this.tiles.keys().next().value);this.tiles.set(k,t)}
+      ctx.drawImage(t,gx+i*TS,gy+j*TS)}
+    ctx.setTransform(m)}};
 function render(){
-  ctx.setTransform(G.dpr,0,0,G.dpr,0,0);ctx.fillStyle=(G.L&&G.L.mapDef&&G.L.mapDef.voidCol)||'#3d7a34';ctx.fillRect(0,0,G.W,G.H);
-  if(!G.L)return;{const sk=G.comboShake&&G.comboShake();if(sk){ctx.translate(sk[0],sk[1])}}const L=G.L,z=G.zoom(),h=G.hole;
-  // textured ground (prerendered per level)
-  const [ax,ay]=G.toScreen(0,0),[bx,by]=G.toScreen(L.size[0],L.size[1]);
-  const HF=FEATURES.hiFiGraphics;if(HF)GFX.backdrop(L,ax,ay,bx,by,z);
-  ctx.fillStyle=shade(L.ground[0],-55);ctx.fillRect(ax-10*z,ay-10*z,bx-ax+20*z,by-ay+30*z);
-  if(!G.groundCv||G.groundFor!==L||G.groundHF!==HF)buildGround(L);ctx.drawImage(G.groundCv,ax,ay,bx-ax,by-ay);if(HF)GFX.groundFx(L,ax,ay,bx,by,z);
+  ctx.setTransform(G.dpr,0,0,G.dpr,0,0);
+  if(!G.L){ctx.fillStyle='#3d7a34';ctx.fillRect(0,0,G.W,G.H);return}const shk=G.comboShake&&G.comboShake(),L=G.L,z=G.zoom(),h=G.hole;
+  // textured ground (prerendered per level, blitted as cached screen-resolution tiles)
+  const [ax,ay]=G.toScreen(0,0),[bx,by]=G.toScreen(L.size[0],L.size[1]),HF=FEATURES.hiFiGraphics;
+  const ex0=ax-10*z,ey0=ay-10*z,ex1=bx+10*z,ey1=by+20*z,s0=shk?Math.abs(shk[0])+Math.abs(shk[1])+1:0,covered=ex0<-s0&&ey0<-s0&&ex1>G.W+s0&&ey1>G.H+s0;
+  if(!covered){ctx.fillStyle=(L.mapDef&&L.mapDef.voidCol)||'#3d7a34';ctx.fillRect(0,0,G.W,G.H)} // the sky/void is only drawn when the map edge is on screen
+  if(shk)ctx.translate(shk[0],shk[1]);
+  if(HF&&!covered)GFX.backdrop(L,ax,ay,bx,by,z);
+  ctx.fillStyle=shade(L.ground[0],-55); // map border: a frame around the ground, not a full fill under it
+  ctx.fillRect(ex0,ey0,ex1-ex0,ay-ey0+1);ctx.fillRect(ex0,by-1,ex1-ex0,ey1-by+1);ctx.fillRect(ex0,ay,ax-ex0+1,by-ay);ctx.fillRect(bx-1,ay,ex1-bx+1,by-ay);
+  if(!G.groundCv||G.groundFor!==L||G.groundHF!==HF)buildGround(L);GTILES.draw(L,ax,ay,bx,by);if(HF)GFX.groundFx(L,ax,ay,bx,by,z);
   G.hook('drawGround',ctx);
   // hole
   const[hx,hy]=G.toScreen(h.x,h.y),hr=h.r*z*(FEATURES.hiFiGraphics?GFX.depth(hy):1);
