@@ -104,7 +104,7 @@ const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fai
  release:true for App Store / Google Play builds: forces unlockAll off, ignores ?dev=1 (no tester mode),
  and hides the coin shop unless a real billing provider (window.SlyBilling) is attached, so TEST banners never ship.
  Bump version/build for every store upload (also bump CACHE in sw.js so the offline copy updates). */
-const BUILD={version:'1.0.0',build:1,release:false,
+const BUILD={version:'1.0.0',build:2,release:false,
   supportEmail:'slyescape@mail.grokbot.com',privacyUrl:'privacy.html',supportUrl:'support.html'};
 const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
@@ -2792,6 +2792,22 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
   const tierOf=n=>{let t=null;for(const x of T)if(n>=x.at)t=x;return t};
   const qf=()=>!FEATURES.hiFiGraphics?0.6:[0.35,0.6,1][GFX.quality]??1; // particle budget follows the hi-fi quality step-down
   const star=(c,x,y,r,rot)=>{c.beginPath();for(let i=0;i<10;i++){const a=rot+i*Math.PI/5,rr=i&1?r*0.45:r;c.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr)}c.closePath();c.fill()};
+  /* Perf (phones): combo text used to run shadowBlur glow + gradients + measureText on big scaled text every frame.
+     Now each text is rendered once (glow + outlines + gradient) into a cached sprite and just drawn each frame.
+     Rainbow tiers bake glow + outline only and draw their cycling gradient fill live (no blur, cheap). */
+  const TXC=new Map();
+  const textSprite=(txt,font,t,glow,word)=>{const key=txt+'|'+font+'|'+t.word+'|'+glow,hit=TXC.get(key);if(hit){TXC.delete(key);TXC.set(key,hit);return hit}
+    const R=Math.min(3,Math.max(2,G.dpr||2))*1.15,m=document.createElement('canvas').getContext('2d');m.font=font;const i=T.indexOf(t),bl=glow?(word?20:14+i*4):0,tw=m.measureText(txt).width,pad=6+bl*0.9,
+      w=tw+pad*2,h=(word?34:30)*1.15+pad*2,cv=document.createElement('canvas');cv.width=Math.ceil(w*R);cv.height=Math.ceil(h*R);const c=cv.getContext('2d');
+    c.scale(R,R);c.translate(w/2,h/2);c.font=font;c.textAlign='center';c.textBaseline='middle';c.lineJoin='round';
+    if(bl){const gc=document.createElement('canvas');gc.width=Math.ceil(w);gc.height=Math.ceil(h);const g=gc.getContext('2d');g.translate(w/2,h/2);g.font=font;g.textAlign='center';g.textBaseline='middle';g.lineJoin='round';
+      g.shadowColor=t.glow;g.shadowBlur=bl;g.lineWidth=word?10:9;g.strokeStyle='#2a0f4b';g.strokeText(txt,0,0);c.drawImage(gc,-w/2,-h/2,w,h)} // soft glow blurred at 1x (cheap), crisp text on top at full res
+    c.lineWidth=word?10:9;c.strokeStyle='#2a0f4b';c.strokeText(txt,0,0);
+    if(!word){c.lineWidth=3;c.strokeStyle='#ffffff';c.strokeText(txt,0,0)}
+    if(!t.rainbow){let fill;if(word){fill=c.createLinearGradient(0,-18,0,16);fill.addColorStop(0,'#ffffff');fill.addColorStop(0.45,t.cols[0]);fill.addColorStop(1,t.cols[1])}else{fill=c.createLinearGradient(0,-16,0,14);fill.addColorStop(0,t.cols[0]);fill.addColorStop(1,t.cols[1])}c.fillStyle=fill;c.fillText(txt,0,0)}
+    const sp={c:cv,w,h,ox:w/2,oy:h/2,tw:tw+(word?14:12)};if(TXC.size>40)TXC.delete(TXC.keys().next().value);TXC.set(key,sp);return sp};
+  // render the next count's sprite ahead of time (during update, off the draw path) so a new swallow never stalls a frame
+  const warm=n=>{const t=tierOf(n);if(t)textSprite('COMBO x'+n,'900 30px system-ui',t,FEATURES.hiFiGraphics&&GFX.quality>=2,false)};
   const burst=(n,t,big)=>{n=Math.round(n*qf());if(G.fx.length>CF.maxParticles)n=Math.min(n,4);const[hx,hy]=G.toScreen(G.hole.x,G.hole.y),hr=G.hole.r*G.zoom();
     const cols=[t.glow,t.cols[0],t.cols[1],'#ffffff','#ffe14d'];
     for(let i=0;i<n;i++){const a=Math.random()*6.283,s=(big?160:90)+Math.random()*(big?260:120),k=Math.random();
@@ -2805,8 +2821,8 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
     G.addFx({t:0,life:1.4,draw(c,f){const k=f.t/f.life;c.save();c.globalAlpha=Math.min(1,(1-k)*2.5);c.font='900 22px system-ui';c.textAlign='center';c.lineWidth=5;c.strokeStyle='#5a3a00';c.fillStyle='#ffe14d';const y=G.H*0.2+168-k*14;c.strokeText('+'+n+' 🪙 bonus',G.W/2,y);c.fillText('+'+n+' 🪙 bonus',G.W/2,y);c.restore()}})};
   G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;G.COMBO_FX=CF;
   G.comboShake=()=>shk>0.05&&CF.shake?[(Math.random()-0.5)*2*shk,(Math.random()-0.5)*2*shk]:null;
-  G.use({levelStart(G){G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;pop=shk=flash=0;tierShow=null},
-  update(G,dt){if((G.comboT-=dt)<=0)G.combo=0;pop=Math.max(0,pop-dt*3.2);shk=Math.max(0,shk-dt*shk*7-dt*2);flash=Math.max(0,flash-dt*1.4);if(tierShow&&(tierShow.t+=dt)>1.3)tierShow=null},
+  G.use({levelStart(G){G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;pop=shk=flash=0;tierShow=null;const g=FEATURES.hiFiGraphics&&GFX.quality>=2;for(const t of T)textSprite(t.word,'italic 900 34px system-ui',t,g,true);warm(3)},
+  update(G,dt){if((G.comboT-=dt)<=0)G.combo=0;else warm(G.combo+1);pop=Math.max(0,pop-dt*3.2);shk=Math.max(0,shk-dt*shk*7-dt*2);flash=Math.max(0,flash-dt*1.4);if(tierShow&&(tierShow.t+=dt)>1.3)tierShow=null},
   modifyScore(G,o,p){G.combo++;G.comboMax=Math.max(G.comboMax,G.combo);G.comboT=CF.window;pop=1;G.comboHit=null;
     const top=T[T.length-1],t=T.find(x=>x.at===G.combo)||(G.combo>top.at&&(G.combo-top.at)%CF.repeatEvery===0?top:null);if(t)G.comboHit=t;
     return p*(1+(Math.min(CF.maxMult,G.combo)-1)*CF.multStep)},
@@ -2816,21 +2832,21 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
     else burst(2+T.indexOf(t)*2,t,false)},
   levelEnd(G,r){if(r.win&&G.comboCoins&&G.save){G.save.coins+=G.comboCoins;r.msg=(r.msg||'')+' +'+G.comboCoins+' 🪙 combo bonus · '}},
   drawHud(G,c){
-    if(flash>0.005){c.save();c.globalAlpha=flash;c.fillStyle=flashCol;c.globalCompositeOperation='lighter';c.fillRect(0,0,G.W,G.H);c.restore()}
+    if(flash>0.005){c.save();c.globalAlpha=flash;c.fillStyle=flashCol;c.fillRect(0,0,G.W,G.H);c.restore()}
     const t=tierOf(G.combo);
     if(t){const i=T.indexOf(t),e=pop>0?Math.sin(pop*Math.PI)*0.38*(1+i*0.15):0,s=t.scale*(1+e)*(1+Math.sin(G.t*(8+i*2))*0.03),y=G.H*0.2,txt='COMBO x'+G.combo,glow=FEATURES.hiFiGraphics&&GFX.quality>=2;
-      c.save();c.translate(G.W/2,y);c.rotate(Math.sin(G.t*6)*0.03*i+(pop>0.6?(pop-0.6)*0.25*(G.combo&1?1:-1):0));c.font='900 30px system-ui';{const tw=c.measureText(txt).width+12;c.scale(Math.min(s,G.W*0.92/tw),Math.min(s,G.W*0.92/tw))}c.textAlign='center';c.textBaseline='middle';c.lineJoin='round';
-      let fill;if(t.rainbow){fill=c.createLinearGradient(-90,0,90,0);const h0=(G.t*240)%360;for(let k=0;k<=4;k++)fill.addColorStop(k/4,'hsl('+((h0+k*70)%360)+',100%,62%)')}else{fill=c.createLinearGradient(0,-16,0,14);fill.addColorStop(0,t.cols[0]);fill.addColorStop(1,t.cols[1])}
-      if(glow){c.shadowColor=t.glow;c.shadowBlur=14+i*4}c.lineWidth=9;c.strokeStyle='#2a0f4b';c.strokeText(txt,0,0);c.shadowBlur=0;c.lineWidth=3;c.strokeStyle='#ffffff';c.strokeText(txt,0,0);c.fillStyle=fill;c.fillText(txt,0,0);c.restore();
+      const sp=textSprite(txt,'900 30px system-ui',t,glow,false),sc=Math.min(s,G.W*0.92/sp.tw);
+      c.save();c.translate(G.W/2,y);c.rotate(Math.sin(G.t*6)*0.03*i+(pop>0.6?(pop-0.6)*0.25*(G.combo&1?1:-1):0));c.scale(sc,sc);c.drawImage(sp.c,-sp.ox,-sp.oy,sp.w,sp.h);
+      if(t.rainbow){const fill=c.createLinearGradient(-90,0,90,0),h0=(G.t*240)%360;for(let k=0;k<=4;k++)fill.addColorStop(k/4,'hsl('+((h0+k*70)%360)+',100%,62%)');c.font='900 30px system-ui';c.textAlign='center';c.textBaseline='middle';c.fillStyle=fill;c.fillText(txt,0,0)}c.restore();
       // streak meter: drains over the combo window, shows current points multiplier
       const w=150,bx=G.W/2-w/2,by=y+24*t.scale+6,k=Math.max(0,G.comboT/CF.window),mult=1+(Math.min(CF.maxMult,G.combo)-1)*CF.multStep;
       c.save();c.fillStyle='rgba(30,10,60,.55)';c.beginPath();c.roundRect(bx-2,by-2,w+4,12,6);c.fill();c.fillStyle=k<0.3&&(G.t*10&1)?'#ff4a5a':t.glow;c.beginPath();c.roundRect(bx,by,w*k,8,4);c.fill();
       c.fillStyle='rgba(255,255,255,.5)';c.fillRect(bx+3,by+1,Math.max(0,w*k-6),2);const nx=T[i+1];c.font='800 12px system-ui';c.textAlign='center';c.fillStyle='#fff';c.strokeStyle='#2a0f4b';c.lineWidth=3;
       const lab='x'+mult.toFixed(2).replace(/\.?0+$/,'')+' pts'+(nx?' · '+(nx.at-G.combo)+' to '+nx.word.replace('!',''):'');c.strokeText(lab,G.W/2,by+22);c.fillText(lab,G.W/2,by+22);c.restore()}
     if(tierShow){const k=tierShow.t/1.3,h=tierShow.tier,i=T.indexOf(h),inn=Math.min(1,tierShow.t/0.18),s=(0.4+0.6*(1-Math.pow(1-inn,3)))*(1+0.25*Math.max(0,1-tierShow.t/0.35))*(0.9+i*0.12);
-      c.save();c.globalAlpha=k>0.7?(1-k)/0.3:1;c.translate(G.W/2,G.H*0.2+104);c.rotate(-0.08+Math.sin(tierShow.t*9)*0.03);c.font='italic 900 34px system-ui';{const tw=c.measureText(h.word).width+14;c.scale(Math.min(s,G.W*0.9/tw),Math.min(s,G.W*0.9/tw))}c.textAlign='center';c.textBaseline='middle';c.lineJoin='round';
-      const g2=c.createLinearGradient(0,-18,0,16);if(h.rainbow){const h0=(G.t*300)%360;g2.addColorStop(0,'hsl('+h0+',100%,70%)');g2.addColorStop(1,'hsl('+((h0+120)%360)+',100%,55%)')}else{g2.addColorStop(0,'#ffffff');g2.addColorStop(0.45,h.cols[0]);g2.addColorStop(1,h.cols[1])}
-      if(FEATURES.hiFiGraphics&&GFX.quality>=2){c.shadowColor=h.glow;c.shadowBlur=20}c.lineWidth=10;c.strokeStyle='#2a0f4b';c.strokeText(h.word,0,0);c.shadowBlur=0;c.fillStyle=g2;c.fillText(h.word,0,0);
+      const sp=textSprite(h.word,'italic 900 34px system-ui',h,FEATURES.hiFiGraphics&&GFX.quality>=2,true),sc=Math.min(s,G.W*0.9/sp.tw);
+      c.save();c.globalAlpha=k>0.7?(1-k)/0.3:1;c.translate(G.W/2,G.H*0.2+104);c.rotate(-0.08+Math.sin(tierShow.t*9)*0.03);c.scale(sc,sc);c.drawImage(sp.c,-sp.ox,-sp.oy,sp.w,sp.h);
+      if(h.rainbow){const g2=c.createLinearGradient(0,-18,0,16),h0=(G.t*300)%360;g2.addColorStop(0,'hsl('+h0+',100%,70%)');g2.addColorStop(1,'hsl('+((h0+120)%360)+',100%,55%)');c.font='italic 900 34px system-ui';c.textAlign='center';c.textBaseline='middle';c.fillStyle=g2;c.fillText(h.word,0,0)}
       if(i>=2){c.fillStyle='#fff';for(let j=0;j<i+2;j++){const a=G.t*2+j*6.283/(i+2);star(c,Math.cos(a)*120,Math.sin(a)*26,5+Math.sin(G.t*10+j)*2,G.t*3)}}c.restore()}}})}
 // --- PARTICLES ---
 if(FEATURES.particles)G.use({swallow(G,o){for(let i=0;i<10;i++){const a=rnd(0,6.28),s=rnd(40,140);
