@@ -104,7 +104,7 @@ const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fai
  release:true for App Store / Google Play builds: forces unlockAll off, ignores ?dev=1 (no tester mode),
  and hides the coin shop unless a real billing provider (window.SlyBilling) is attached, so TEST banners never ship.
  Bump version/build for every store upload (also bump CACHE in sw.js so the offline copy updates). */
-const BUILD={version:'1.0.0',build:3,release:false,
+const BUILD={version:'1.0.0',build:4,release:false,
   supportEmail:'slyescape@mail.grokbot.com',privacyUrl:'privacy.html',supportUrl:'support.html'};
 const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
@@ -206,7 +206,9 @@ const IAP={
   priceLabel(p){return this.prices[p.sku]||('$'+p.usd.toFixed(2))},
   owned(sku){return !!((G.save.iap||{})[sku])},
   async init(){this.provider=this.provider||window.SlyBilling||null;if(this.provider&&this.provider.init){try{const l=await this.provider.init(this.products().map(p=>p.sku));(l||[]).forEach(x=>this.prices[x.sku]=x.price)}catch(e){console.warn('IAP init',e)}}},
-  async purchase(sku){const p=this.product(sku);if(!p)return{ok:false,error:'unknown sku'};if(p.oneTime&&this.owned(sku))return{ok:false,error:'owned'};
+  // one purchase flow at a time (a double tap must not open two gates / charge twice)
+  async purchase(sku){if(this.busy)return{ok:false,error:'busy'};this.busy=true;try{return await this._purchase(sku)}finally{this.busy=false}},
+  async _purchase(sku){const p=this.product(sku);if(!p)return{ok:false,error:'unknown sku'};if(p.oneTime&&this.owned(sku))return{ok:false,error:'owned'};
     if(!(await GATE.ask('purchase')))return{ok:false,cancelled:true,gate:true};
     if(!this.provider&&BUILD.release)return{ok:false,error:'store unavailable'};
     if(this.provider){const r=await this.provider.purchase(sku);if(r&&r.ok){this.grant(sku);this.provider.finish&&this.provider.finish(r)}return r||{ok:false}}
@@ -857,9 +859,11 @@ const SaveIO={native:null,
   get(k){try{return localStorage.getItem(k)}catch(e){return null}},
   set(k,v){let ok=true;try{localStorage.setItem(k,v)}catch(e){ok=false;console.warn('save failed',e)}if(this.native)Promise.resolve(this.native.set(k,v)).catch(e=>console.warn('native save failed',e));return ok},
   async attach(adapter){this.native=adapter;try{const o=parseSave(await adapter.get(SAVE_KEY)),cur=G.save;
-      if(o&&(o.savedAt||0)>(cur.savedAt||0)){for(const k of Object.keys(cur))delete cur[k];Object.assign(cur,migrateSave(o));G.hook('saveReloaded')}
-      writeSave(cur);for(const k of ['slyescape.mute','slyescape.musicMute']){const l=this.get(k);if(l!=null)adapter.set(k,l)}}catch(e){console.warn('SaveIO.attach',e)}}};
-function loadSave(){const raw=SaveIO.get(SAVE_KEY);let o=parseSave(raw);
+      // restore from native storage when it is newer, OR when this WebView started with no save at all (storage wiped:
+      // the fresh default save was already written at boot with a newer timestamp, so 'newer' alone would overwrite the real save)
+      if(o&&(SaveIO.fresh||(o.savedAt||0)>(cur.savedAt||0))){SaveIO.fresh=false;for(const k of ['slyescape.mute','slyescape.musicMute']){const v=await adapter.get(k);if(v!=null&&this.get(k)==null)try{localStorage.setItem(k,v)}catch(e){}}writeSave(migrateSave(o));G.hook('saveReloaded');try{location.reload()}catch(e){}return}
+      SaveIO.fresh=false;writeSave(cur);for(const k of ['slyescape.mute','slyescape.musicMute']){const l=this.get(k);if(l!=null)adapter.set(k,l)}}catch(e){console.warn('SaveIO.attach',e)}}};
+function loadSave(){const raw=SaveIO.get(SAVE_KEY);let o=parseSave(raw);SaveIO.fresh=!raw&&!SaveIO.get(SAVE_KEY+'.bak');
   if(!o){const b=parseSave(SaveIO.get(SAVE_KEY+'.bak'));if(raw){SaveIO.set(SAVE_KEY+'.corrupt',raw);console.warn('save corrupt: '+(b?'restored backup':'starting fresh'))}if(b){o=b;o.recovered=(+o.recovered||0)+1}}
   const m=migrateSave(o||{});if(raw&&!parseSave(raw))writeSave(m);return m} // repair the main copy right away
 function writeSave(s){s.savedAt=Date.now();const j=JSON.stringify(s);if(SaveIO.set(SAVE_KEY,j))SaveIO.set(SAVE_KEY+'.bak',j)}
@@ -2601,6 +2605,10 @@ cv.addEventListener('pointerdown',e=>{G.input.active=true;G.input.sx=e.clientX;G
 addEventListener('pointermove',e=>{if(!G.input.active)return;const dx=e.clientX-G.input.sx,dy=e.clientY-G.input.sy,m=Math.hypot(dx,dy),R=60;
   if(m>R){G.input.sx=e.clientX-dx/m*R;G.input.sy=e.clientY-dy/m*R}G.input.x=dx/R;G.input.y=dy/R});
 addEventListener('pointerup',()=>{G.input.active=false;G.input.x=G.input.y=0});
+// a system gesture / incoming call can cancel the touch without a pointerup: stop steering instead of drifting forever
+for(const ev of ['pointercancel','blur'])addEventListener(ev,()=>{G.input.active=false;G.input.x=G.input.y=0});
+// app sent to background: silence sound + music (WebAudio keeps playing otherwise); resume when back
+document.addEventListener('visibilitychange',()=>{const ac=G.ac;if(!ac)return;try{document.hidden?ac.suspend():ac.resume()}catch(e){}});
 /* ---------- menus ---------- */
 $('bPlay').onclick=()=>{G.hook('userGesture');FEATURES.levelSelect?(G.renderSelect(),G.show('sSelect')):G.startLevel(Math.min(G.save.unlocked,LEVELS.length)-1)};
 $('bBack').onclick=()=>G.show('sMenu');$('bMenu').onclick=()=>{G.state='menu';G.show('sMenu')};
@@ -3437,7 +3445,8 @@ if(FEATURES.settings){
     if($('sHow')){const f=document.createElement('div');f.className='dim';f.style.cssText='font-size:15px;display:flex;gap:18px;flex-shrink:0;font-weight:800';f.innerHTML='<a href="#" id="howPriv" style="color:#fff">🔒 Privacy</a><a href="#" id="howSup" style="color:#fff">💬 Support</a>';
       $('bHowBack').before(f);$('howPriv').onclick=e=>{e.preventDefault();G.openLink(BUILD.privacyUrl)};$('howSup').onclick=e=>{e.preventDefault();G.openLink(BUILD.supportUrl)}}}})}
 // offline play + durable storage (web/PWA; harmless inside a native wrapper)
-if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(e=>console.warn('sw',e)));
+if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)&&!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform())) // the app bundles its files; offline cache is for the web version only
+  window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(e=>console.warn('sw',e)));
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persisted().then(p=>p||navigator.storage.persist()).catch(()=>{});
 /* ===================== BOOT ===================== */
 G.hook('init');requestAnimationFrame(frame);

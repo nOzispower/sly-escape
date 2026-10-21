@@ -1,7 +1,7 @@
 const pp=require('puppeteer-core');
 (async()=>{const br=await pp.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});const pg=await br.newPage();await pg.setViewport({width:390,height:844,deviceScaleFactor:2});
 const errs=[];pg.on('pageerror',e=>errs.push(e.message));pg.on('console',m=>m.type()==='error'&&errs.push(m.text()));
-await pg.goto('file:///workspace/hole-game/_off.html'+(process.argv[2]||''));await pg.evaluate(()=>localStorage.clear());await pg.reload();
+await pg.goto('file:///workspace/hole-game/index.html'+(process.argv[2]||''));await pg.evaluate(()=>localStorage.clear());await pg.reload();
 const R={},W=ms=>new Promise(r=>setTimeout(r,ms)),ok=(k,c)=>{R[k]=c;if(!c)R.FAIL=(R.FAIL||[]).concat(k)};
 const timeout=()=>pg.evaluate(()=>{const G=HG;G.timeLeft=0.02;for(let k=0;k<5&&G.state==='play';k++)G.step(1/60);return{st:G.state,on:document.getElementById('ctPanel').classList.contains('on'),over:G.over}});
 await pg.evaluate(()=>{HG.save.coins=1000;HG.persist();HG.startLevel(2);for(let k=0;k<60;k++)HG.step(1/60)});
