@@ -104,7 +104,7 @@ const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fai
  release:true for App Store / Google Play builds: forces unlockAll off, ignores ?dev=1 (no tester mode),
  and hides the coin shop unless a real billing provider (window.SlyBilling) is attached, so TEST banners never ship.
  Bump version/build for every store upload (also bump CACHE in sw.js so the offline copy updates). */
-const BUILD={version:'1.0.0',build:5,release:false,
+const BUILD={version:'1.0.0',build:6,release:false,
   supportEmail:'slyescape@mail.grokbot.com',privacyUrl:'privacy.html',supportUrl:'support.html'};
 const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
@@ -906,7 +906,7 @@ G.startLevel=function(i){
 G.progress=function(){const g=G.L.goal;return g.type==='clear'?Math.min(1,G.eaten/G.total/(g.pct/100)):Math.min(1,(G.hole.r-16)/(g.r-16))};
 G.addFx=(f)=>G.fx.push(f);
 G.eat=function(o){HEAD_ST.chomp=1;
-  G.objs.splice(G.objs.indexOf(o),1);o.t=0;G.falling.push(o);
+  G.objs.splice(G.objs.indexOf(o),1);o.t=0;if(G.falling.length<10)G.falling.push(o);
   if(!o.noCount)G.eaten++;
   let pts=G.pipe('modifyScore',o.pts||o.T.pts,o);G.score+=Math.round(pts);
   const grow=G.pipe('modifyGrowth',o.size*o.size*0.09,o);
@@ -926,7 +926,7 @@ G.endLevel=function(win){
   {const nx=LEVELS[G.li+1];$('bNext').style.display=win&&nx&&(nx.map||null)===(G.L.map||null)?'':'none'}
   setTimeout(()=>G.show('sEnd'),win?500:200);
 };
-function update(dt){
+function update(dt){G.fno=(G.fno||0)+1;
   const h=G.hole,L=G.L;G.elapsed+=dt;
   let vx=0,vy=0;
   if(G.auto){const a=G.auto(G);vx=a.x;vy=a.y}
@@ -2320,7 +2320,16 @@ const GFX=(()=>{
     return{c:bmp(c),s:bmp(s),half,top,bot,rq}}
   function sprite(o,rr){const T=o.T;if(!T._gid)T._gid=gid++;const rq=Math.pow(1.07,Math.round(Math.log(Math.max(2,rr))/Math.log(1.07)));
     const k=T._gid+'|'+o.size+'|'+rq.toFixed(2)+'|'+(o.face||1)+'|'+frameOf(o)+'|'+(o.scared?1:0)+'|'+(o.ck||'');let e=CACHE.get(k);
-    if(e){CACHE.delete(k);CACHE.set(k,e);return e}e=build(o,rq);STAT.builds++;CACHE.set(k,e);if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value);return e}
+    const bk=T._gid+'|'+o.size+'|'+(o.face||1)+'|'+frameOf(o)+'|'+(o.scared?1:0)+'|'+(o.ck||'');
+    if(e){CACHE.delete(k);CACHE.set(k,e);NEAR.set(bk,e);return e}
+    // zooming out after a big meal changes every object's size step at once: build at most 2 sprites per frame and draw the
+    // nearest already-built size (scaled) for the rest, finishing them in idle time - no burst of sprite rebuilds in one frame
+    if(budF!==G.fno){budF=G.fno;bud=2}const near=NEAR.get(bk);
+    if(near&&bud<=0){if(!SQ.has(k)){SQ.set(k,[o,rq]);if(!sqOn){sqOn=true;(window.requestIdleCallback?f=>requestIdleCallback(f,{timeout:60}):f=>setTimeout(f,16))(drainSQ)}}return near}
+    bud--;e=build(o,rq);STAT.builds++;CACHE.set(k,e);NEAR.set(bk,e);if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value);return e}
+  const NEAR=new Map(),SQ=new Map();let bud=0,budF=-1,sqOn=false;
+  function drainSQ(dl){sqOn=false;let n=0;for(const[k,[o,rq]]of SQ){SQ.delete(k);if(!CACHE.has(k)){const e=build(o,rq);STAT.builds++;CACHE.set(k,e);if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value)}if(++n>=2)break}
+    if(SQ.size){sqOn=true;(window.requestIdleCallback?f=>requestIdleCallback(f,{timeout:60}):f=>setTimeout(f,16))(drainSQ)}}
   const isPlant=T=>T.shape==='tree'||T.shape==='crop'||T.orchTree||/tree|pine|palm|cactus|flower|corn|grape|plant|bush|fern|mushroom/.test(T.id||'');
   function obj(o,sx0,sy0,z){const T=o.T,k=depth(sy0),rr=o.size*z*k,hh=T.h*z*k;if(!OPT.sprites){ctx.drawImage(AO,sx0-rr*1.05,sy0-rr*0.34,rr*2.1,rr*0.68);drawObj(o,sx0,sy0,z*k,1);return}
     // contact AO + long soft cast shadow
@@ -2777,7 +2786,7 @@ if(FEATURES.sound){let ac=null,muted=SaveIO.get('slyescape.mute')==='1';
   G.sfx=tone;
   G.soundOn=()=>!muted;G.use({init(G){G.sndBtn=G.ui.tool(muted?'🔇':'🔊',b=>{muted=!muted;SaveIO.set('slyescape.mute',muted?'1':'0');b.textContent=muted?'🔇':'🔊'})},
     userGesture(){ac=G.getAC()},
-    swallow(G,o){const P=(G.L&&G.L.sfx)||WORLD_SFX[G.worldOf()%WORLD_SFX.length];tone(P[1]*Math.pow(2,Math.min(24,(G.combo||1)-1)/12*0.75),0.18,P[0],P[0]==='sawtooth'||P[0]==='square'?0.06:0.12,P[2]);},
+    swallow(G,o){if(ac&&ac.currentTime-(G._lastTone||-1)<0.045)return;if(ac)G._lastTone=ac.currentTime;const P=(G.L&&G.L.sfx)||WORLD_SFX[G.worldOf()%WORLD_SFX.length];tone(P[1]*Math.pow(2,Math.min(24,(G.combo||1)-1)/12*0.75),0.18,P[0],P[0]==='sawtooth'||P[0]==='square'?0.06:0.12,P[2]);},
     comboTier(G,t,i){const P=(G.L&&G.L.sfx)||WORLD_SFX[G.worldOf()%WORLD_SFX.length],base=P[3].map(f=>f*Math.pow(2,i/6)),n=3+i;for(let k=0;k<n;k++)setTimeout(()=>tone(base[k%4]*(k>=4?2:1),0.16+(k===n-1?0.25:0),k===n-1?'triangle':P[0],k===n-1?0.11:0.07),k*65);if(i>=3)setTimeout(()=>tone(base[0]*0.5,0.5,'triangle',0.09,base[0]*0.5),0)},
     levelEnd(G,r){const P=(G.L&&G.L.sfx)||WORLD_SFX[G.worldOf()%WORLD_SFX.length];r.win?P[3].forEach((f,i)=>setTimeout(()=>tone(f,0.2,P[0],0.08),i*110)):tone(300,0.5,'sawtooth',0.08,-200)},
     stunned(){tone(200,0.3,'square',0.1,200)},bigBonus(){[784,988,1175,1568].forEach((f,i)=>setTimeout(()=>tone(f,0.15,'triangle',0.12),i*70))}})}
@@ -2828,7 +2837,7 @@ const COMBO_FX={window:1.2,maxMult:10,multStep:0.25,repeatEvery:10,shake:true,fl
    {at:10,word:'Awesome!',  cols:['#ffd0fa','#b05aff'],glow:'#c04aff',scale:1.26,shake:4,flash:0.12,burst:30,coins:1},
    {at:15,word:'INSANE!',   cols:['#ffe14d','#ff3b6b'],glow:'#ff2f5a',scale:1.4, shake:6,flash:0.17,burst:42,coins:2},
    {at:20,word:'LEGENDARY!',cols:['#ffffff','#ffd23f'],glow:'#ffd23f',scale:1.55,shake:8,flash:0.22,burst:56,coins:3,rainbow:true}]};
-if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCol='#fff',tierShow=null;
+if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCol='#fff',tierShow=null,pend=null,pendSmall=null;
   const tierOf=n=>{let t=null;for(const x of T)if(n>=x.at)t=x;return t};
   const qf=()=>!FEATURES.hiFiGraphics?0.6:[0.35,0.6,1][GFX.quality]??1; // particle budget follows the hi-fi quality step-down
   const star=(c,x,y,r,rot)=>{c.beginPath();for(let i=0;i<10;i++){const a=rot+i*Math.PI/5,rr=i&1?r*0.45:r;c.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr)}c.closePath();c.fill()};
@@ -2849,7 +2858,7 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
   // render the next count's sprite ahead of time (during update, off the draw path) so a new swallow never stalls a frame
   const warm=n=>{const t=tierOf(n);if(t)textSprite('COMBO x'+n,'900 30px system-ui',t,FEATURES.hiFiGraphics&&GFX.quality>=2,false)};
   // build upcoming "COMBO xN" sprites in idle time between frames (never inside a swallow frame); one per idle slice
-  const IQ=[],ric=window.requestIdleCallback||(f=>setTimeout(f,16));let iqOn=false;
+  let lastSp=null;const IQ=[],ric=window.requestIdleCallback||(f=>setTimeout(f,16));let iqOn=false;
   const pump=()=>{iqOn=false;const n=IQ.shift();if(n==null)return;warm(n);if(IQ.length){iqOn=true;ric(pump,{timeout:120})}};
   const warmAhead=(n,k)=>{for(let j=1;j<=k;j++)if(!IQ.includes(n+j))IQ.push(n+j);if(IQ.length>12)IQ.splice(0,IQ.length-12);if(!iqOn){iqOn=true;ric(pump,{timeout:120})}};
   const burst=(n,t,big)=>{n=Math.round(n*qf());if(G.fx.length>CF.maxParticles)n=Math.min(n,4);const[hx,hy]=G.toScreen(G.hole.x,G.hole.y),hr=G.hole.r*G.zoom();
@@ -2866,20 +2875,24 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
   G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;G.COMBO_FX=CF;
   G.comboShake=()=>shk>0.05&&CF.shake?[(Math.random()-0.5)*2*shk,(Math.random()-0.5)*2*shk]:null;
   G.use({levelStart(G){G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;pop=shk=flash=0;tierShow=null;const g=FEATURES.hiFiGraphics&&GFX.quality>=2;for(const t of T)textSprite(t.word,'italic 900 34px system-ui',t,g,true);IQ.length=0;warmAhead(2,8)},
-  update(G,dt){if((G.comboT-=dt)<=0)G.combo=0;pop=Math.max(0,pop-dt*3.2);shk=Math.max(0,shk-dt*shk*7-dt*2);flash=Math.max(0,flash-dt*1.4);if(tierShow&&(tierShow.t+=dt)>1.3)tierShow=null},
+  update(G,dt){if(pend){const h=pend.h,i=T.indexOf(h);tierShow={t:0,tier:h,n:pend.n};burst(h.burst,h,true);if(CF.shake)shk=Math.max(shk,h.shake);if(CF.flash&&h.flash){flash=h.flash;flashCol=h.glow}if(pend.c>0)coinShower(pend.c);HEAD_ST.chew=0.6;G.hook('comboTier',h,i,pend.n);pend=null;pendSmall=null}
+    else if(pendSmall){burst(2+T.indexOf(pendSmall)*2,pendSmall,false);pendSmall=null}
+    if((G.comboT-=dt)<=0)G.combo=0;pop=Math.max(0,pop-dt*3.2);shk=Math.max(0,shk-dt*shk*7-dt*2);flash=Math.max(0,flash-dt*1.4);if(tierShow&&(tierShow.t+=dt)>1.3)tierShow=null},
   modifyScore(G,o,p){G.combo++;warmAhead(G.combo,3);G.comboMax=Math.max(G.comboMax,G.combo);G.comboT=CF.window;pop=1;G.comboHit=null;
     const top=T[T.length-1],t=T.find(x=>x.at===G.combo)||(G.combo>top.at&&(G.combo-top.at)%CF.repeatEvery===0?top:null);if(t)G.comboHit=t;
     return p*(1+(Math.min(CF.maxMult,G.combo)-1)*CF.multStep)},
   swallow(G,o){const t=tierOf(G.combo);if(!t)return;
-    if(G.comboHit){const h=G.comboHit,i=T.indexOf(h);G.comboHit=null;tierShow={t:0,tier:h,n:G.combo};burst(h.burst,h,true);if(CF.shake)shk=Math.max(shk,h.shake);if(CF.flash&&h.flash){flash=h.flash;flashCol=h.glow}
-      const gc=Math.min(h.coins,CF.coinCap-G.comboCoins);if(gc>0){G.comboCoins+=gc;coinShower(gc)}HEAD_ST.chew=0.6;G.hook('comboTier',h,i,G.combo)}
-    else burst(2+T.indexOf(t)*2,t,false)},
+    // several swallows in the same frame (a burst) are celebrated once: the highest tier reached, all bonus coins summed, one small burst
+    if(G.comboHit){const h=G.comboHit;G.comboHit=null;const gc=Math.min(h.coins,CF.coinCap-G.comboCoins);if(gc>0)G.comboCoins+=gc;
+      if(!pend||T.indexOf(h)>=T.indexOf(pend.h))pend=Object.assign(pend||{c:0},{h,n:G.combo});if(gc>0)pend.c+=gc}
+    else if(!pendSmall)pendSmall=t},
   levelEnd(G,r){if(r.win&&G.comboCoins&&G.save){G.save.coins+=G.comboCoins;r.msg=(r.msg||'')+' +'+G.comboCoins+' 🪙 combo bonus · '}},
   drawHud(G,c){
     if(flash>0.005){c.save();c.globalAlpha=flash;c.fillStyle=flashCol;c.fillRect(0,0,G.W,G.H);c.restore()}
     const t=tierOf(G.combo);
     if(t){const i=T.indexOf(t),e=pop>0?Math.sin(pop*Math.PI)*0.38*(1+i*0.15):0,s=t.scale*(1+e)*(1+Math.sin(G.t*(8+i*2))*0.03),y=G.H*0.2,txt='COMBO x'+G.combo,glow=FEATURES.hiFiGraphics&&GFX.quality>=2;
-      const sp=textSprite(txt,'900 30px system-ui',t,glow,false),sc=Math.min(s,G.W*0.92/sp.tw);
+      const ky=txt+'|900 30px system-ui|'+t.word+'|'+glow;let sp=TXC.get(ky); // not ready yet (e.g. a burst jumped the count): keep showing the last image for a frame or two while idle time builds it
+      if(sp)lastSp=sp;else if(lastSp&&lastSp.t===t){sp=lastSp;warmAhead(G.combo-1,1)}else{sp=lastSp=textSprite(txt,'900 30px system-ui',t,glow,false)}sp.t=t;const sc=Math.min(s,G.W*0.92/sp.tw);
       c.save();c.translate(G.W/2,y);c.rotate(Math.sin(G.t*6)*0.03*i+(pop>0.6?(pop-0.6)*0.25*(G.combo&1?1:-1):0));c.scale(sc,sc);c.drawImage(sp.c,-sp.ox,-sp.oy,sp.w,sp.h);
       if(t.rainbow){const fill=c.createLinearGradient(-90,0,90,0),h0=(G.t*240)%360;for(let k=0;k<=4;k++)fill.addColorStop(k/4,'hsl('+((h0+k*70)%360)+',100%,62%)');c.font='900 30px system-ui';c.textAlign='center';c.textBaseline='middle';c.fillStyle=fill;c.fillText(txt,0,0)}c.restore();
       // streak meter: drains over the combo window, shows current points multiplier
@@ -2893,13 +2906,14 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
       if(h.rainbow){const g2=c.createLinearGradient(0,-18,0,16),h0=(G.t*300)%360;g2.addColorStop(0,'hsl('+h0+',100%,70%)');g2.addColorStop(1,'hsl('+((h0+120)%360)+',100%,55%)');c.font='italic 900 34px system-ui';c.textAlign='center';c.textBaseline='middle';c.fillStyle=g2;c.fillText(h.word,0,0)}
       if(i>=2){c.fillStyle='#fff';for(let j=0;j<i+2;j++){const a=G.t*2+j*6.283/(i+2);star(c,Math.cos(a)*120,Math.sin(a)*26,5+Math.sin(G.t*10+j)*2,G.t*3)}}c.restore()}}})}
 // --- PARTICLES ---
-if(FEATURES.particles)G.use({swallow(G,o){for(let i=0;i<10;i++){const a=rnd(0,6.28),s=rnd(40,140);
+if(FEATURES.particles){let pf=-1,pn=0;G.use({swallow(G,o){if(pf!==G.fno){pf=G.fno;pn=0}const n=++pn<=3?10:2;for(let i=0;i<n;i++){const a=rnd(0,6.28),s=rnd(40,140);
   G.addFx({x:G.hole.x,y:G.hole.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,t:0,life:0.6,col:i%2?o.T.color:'#ffe14d',
-    draw(c,f){f.x+=f.vx/60;f.y+=f.vy/60;const[sx,sy]=G.toScreen(f.x,f.y);c.globalAlpha=1-f.t/f.life;c.fillStyle=f.col;c.beginPath();c.arc(sx,sy-f.t*40,4*(1-f.t/f.life)+1,0,7);c.fill();c.globalAlpha=1}})}}});
+    draw(c,f){f.x+=f.vx/60;f.y+=f.vy/60;const[sx,sy]=G.toScreen(f.x,f.y);c.globalAlpha=1-f.t/f.life;c.fillStyle=f.col;c.beginPath();c.arc(sx,sy-f.t*40,4*(1-f.t/f.life)+1,0,7);c.fill();c.globalAlpha=1}})}}});}
 // --- POP TEXT ---
-if(FEATURES.popText)G.use({swallow(G,o){G.addFx({x:G.hole.x,y:G.hole.y,t:0,life:0.9,txt:'+'+o.lastPts,big:o.lastPts>=100,
+if(FEATURES.popText){let last=null;G.use({swallow(G,o){if(last&&last.t===0&&last.t0===G.fno){last.v+=o.lastPts;last.txt='+'+last.v;last.big=last.v>=100;return} // a burst shows one '+total' popup
+  G.addFx(last={x:G.hole.x,y:G.hole.y,t:0,t0:G.fno,v:o.lastPts,life:0.9,txt:'+'+o.lastPts,big:o.lastPts>=100,
   draw(c,f){const[sx,sy]=G.toScreen(f.x,f.y);c.globalAlpha=1-f.t/f.life;c.font='900 '+(f.big?30:20)+'px system-ui';c.textAlign='center';c.lineWidth=4;c.strokeStyle='#2a0f6b';
-    const y=sy-G.hole.r*G.zoom()-f.t*60;c.strokeText(f.txt,sx,y);c.fillStyle=f.big?'#ffe14d':'#fff';c.fillText(f.txt,sx,y);c.globalAlpha=1}})}});
+    const y=sy-G.hole.r*G.zoom()-f.t*60;c.strokeText(f.txt,sx,y);c.fillStyle=f.big?'#ffe14d':'#fff';c.fillText(f.txt,sx,y);c.globalAlpha=1}})}});}
 // --- STARS ---
 if(FEATURES.stars)G.use({levelEnd(G,r){if(!r.win)return;const frac=G.eaten/G.total,tf=FEATURES.timer?G.timeLeft/(G.L.time+(G.buyTime?G.buyTime.bought():0)):0.5; // bought seconds don't buy stars
   r.stars=1+(frac>0.8||tf>0.35?1:0)+(frac>0.95||tf>0.55?1:0);if(G.buyTime&&G.buyTime.used())r.stars=Math.min(2,r.stars)}});
