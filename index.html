@@ -109,7 +109,7 @@ const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fai
  release:true for App Store / Google Play builds: forces unlockAll off, ignores ?dev=1 (no tester mode),
  and hides the coin shop unless a real billing provider (window.SlyBilling) is attached, so TEST banners never ship.
  Bump version/build for every store upload (also bump CACHE in sw.js so the offline copy updates). */
-const BUILD={version:'1.0.0',build:7,release:false,
+const BUILD={version:'1.0.0',build:8,release:false,
   supportEmail:'slyescape@mail.grokbot.com',privacyUrl:'privacy.html',supportUrl:'support.html'};
 const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
@@ -139,6 +139,26 @@ const FEATURES={
 // hidden dev switch for testing: ?dev=1 unlocks everything (tester mode, real save untouched); ?dev=0 or no param = normal
 if(!BUILD.release&&/[?&]dev=1\b/.test(location.search))FEATURES.unlockAll=true;
 if(BUILD.release)FEATURES.unlockAll=false; // store builds never ship tester mode
+/* ===================== PERF overlay (hidden, off by default) =====================
+ Turn on: Settings -> tap the version line 5 times (or add ?perf=1 to the web URL). Tap the overlay's 'off' to hide it.
+ Shows FPS, counts of slow frames (>33ms, >50ms) and the 8 slowest frames with tags saying what happened in them.
+ Code marks events with PERF.tag('name'); when the overlay is off that is a single boolean check. */
+const PERF={on:false,cur:[],slow:[],n:0,n33:0,n50:0,ivs:new Float32Array(60),ii:0,el:null,lastUi:0,heap:0,
+  tag(t){if(this.on&&this.cur.indexOf(t)<0)this.cur.push(t)},
+  frame(iv,work,lvl){if(!this.on)return;this.n++;this.ivs[this.ii++%60]=iv;if(iv>33)this.n33++;if(iv>50)this.n50++;
+    const m=performance.memory;if(m){const h=m.usedJSHeapSize;if(this.heap&&h<this.heap-1e6)this.tag('GC');this.heap=h}
+    if(iv>33){const tags=this.cur.length?this.cur.join(' '):(work<iv*0.5?'idle-gap (GC/system?)':'draw');this.slow.push({iv:Math.round(iv),w:Math.round(work),tags,lvl,at:Math.round(performance.now()/100)/10});
+      this.slow.sort((a,b)=>b.iv-a.iv);if(this.slow.length>8)this.slow.length=8}
+    this.cur.length=0;const now=performance.now();if(now-this.lastUi>500){this.lastUi=now;this.ui()}},
+  ui(){if(!this.el){const d=document.createElement('div');d.id='perfBox';d.style.cssText='position:fixed;left:6px;bottom:6px;z-index:99999;background:rgba(0,0,0,.78);color:#fff;font:11px/1.35 monospace;padding:6px 8px;border-radius:8px;max-width:94vw;pointer-events:auto;white-space:pre';
+      d.onclick=e=>{if(e.target.dataset.k==='off')PERF.set(false);if(e.target.dataset.k==='reset')PERF.reset()};document.body.appendChild(d);this.el=d}
+    let a=0;const k=Math.min(60,this.n);for(let i=0;i<k;i++)a+=this.ivs[i];const fps=k?Math.round(1000/(a/k)):0;
+    this.el.innerHTML='FPS '+fps+' · frames '+this.n+' · >33ms '+this.n33+' · >50ms '+this.n50+'  <b data-k="reset" style="color:#ffd23f">[reset]</b> <b data-k="off" style="color:#ff8080">[off]</b>\n'+
+      'res '+(G.dpr||0).toFixed(2)+'x · '+(G.L?G.L.name:'-')+' · build '+BUILD.build+'\nslowest frames (ms total / ms game work / what happened):\n'+
+      (this.slow.map(f=>f.iv+' / '+f.w+'  '+f.tags+'  ['+f.lvl+' @'+f.at+'s]').join('\n')||'(none yet)')},
+  reset(){this.slow=[];this.n=this.n33=this.n50=0;this.ui()},
+  set(v){this.on=v;try{localStorage.setItem('slyescape.perf',v?'1':'0')}catch(e){}if(v){this.reset()}else if(this.el){this.el.remove();this.el=null}}};
+try{PERF.on=localStorage.getItem('slyescape.perf')==='1'||/[?&]perf=1\b/.test(location.search)}catch(e){}
 /* ===================== PARENTAL GATE (FEATURES.parentalGate) =====================
  Shown before any real-money purchase, restore, and before leaving the game (privacy/support pages).
  Adult-solvable: three random digits are written out as words ("seven · two · four") and must be typed on a keypad.
@@ -871,7 +891,7 @@ const SaveIO={native:null,
 function loadSave(){const raw=SaveIO.get(SAVE_KEY);let o=parseSave(raw);SaveIO.fresh=!raw&&!SaveIO.get(SAVE_KEY+'.bak');
   if(!o){const b=parseSave(SaveIO.get(SAVE_KEY+'.bak'));if(raw){SaveIO.set(SAVE_KEY+'.corrupt',raw);console.warn('save corrupt: '+(b?'restored backup':'starting fresh'))}if(b){o=b;o.recovered=(+o.recovered||0)+1}}
   const m=migrateSave(o||{});if(raw&&!parseSave(raw))writeSave(m);return m} // repair the main copy right away
-function writeSave(s){s.savedAt=Date.now();const j=JSON.stringify(s);if(SaveIO.set(SAVE_KEY,j))SaveIO.set(SAVE_KEY+'.bak',j)}
+function writeSave(s){PERF.tag('save');s.savedAt=Date.now();const j=JSON.stringify(s);if(SaveIO.set(SAVE_KEY,j))SaveIO.set(SAVE_KEY+'.bak',j)}
 const Game={
   mods:[],use(m){this.mods.push(m);return m},
   hook(n,...a){for(const m of this.mods)if(m[n])m[n](this,...a)},
@@ -895,7 +915,7 @@ function resize(){G.dpr=Math.min(DPR_CAP,devicePixelRatio||1)*G.rs;G.W=innerWidt
 addEventListener('resize',resize);resize();
 function rnd(a,b){return a+Math.random()*(b-a)}
 G.show=id=>{document.querySelectorAll('.scr').forEach(s=>s.classList.toggle('on',s.id===id));$('hudTop').classList.toggle('on',!id)};
-G.startLevel=function(i){
+G.startLevel=function(i){PERF.tag('level-start');
   const L=LEVELS[i];G.li=i;G.L=L;G.score=0;G.eaten=0;G.timeLeft=L.time;G.elapsed=0;G.over=false;
   G.hole={x:L.size[0]/2,y:L.size[1]/2,r:16,tr:16,stun:0,speed:230};
   G.objs=[];G.falling=[];G.fx=[];
@@ -914,7 +934,7 @@ G.startLevel=function(i){
 };
 G.progress=function(){const g=G.L.goal;return g.type==='clear'?Math.min(1,G.eaten/G.total/(g.pct/100)):Math.min(1,(G.hole.r-16)/(g.r-16))};
 G.addFx=(f)=>G.fx.push(f);
-G.eat=function(o){HEAD_ST.chomp=1;
+G.eat=function(o){PERF.tag('swallow');HEAD_ST.chomp=1;
   G.objs.splice(G.objs.indexOf(o),1);o.t=0;if(G.falling.length<10)G.falling.push(o);
   if(!o.noCount)G.eaten++;
   let pts=G.pipe('modifyScore',o.pts||o.T.pts,o);G.score+=Math.round(pts);
@@ -963,7 +983,7 @@ function update(dt){G.fno=(G.fno||0)+1;
 /* ---------- rendering ---------- */
 G.zoomRaw=()=>Math.min(2.2,Math.max(0.55,(Math.min(G.W,G.H)*0.11)/Math.max(16,G.hole.r)*1.3));
 // zoom moves in tiny 1.2% steps (with hysteresis) instead of continuously, so the cached ground tiles stay valid between steps
-{let zq=0;const ST=Math.log(1.012);G.zoom=()=>{const z=G.zoomRaw();if(!zq||Math.abs(Math.log(z/zq))>ST*0.75)zq=z>=2.2?2.2:Math.exp(Math.round(Math.log(z)/ST)*ST);return zq}}
+{let zq=0;const ST=Math.log(1.012);G.zoom=()=>{const z=G.zoomRaw();if(!zq||Math.abs(Math.log(z/zq))>ST*0.75)PERF.tag('zoom-step'),zq=z>=2.2?2.2:Math.exp(Math.round(Math.log(z)/ST)*ST);return zq}}
 G.toScreen=(x,y)=>{const z=G.zoom();return[(x-G.cam.x)*z+G.W/2,(y-G.cam.y)*z*TILT+G.H*0.55]};
 function shade(c,a){let r,g,b;if(c[0]==='#'){const n=parseInt(c.slice(1),16);r=n>>16;g=n>>8&255;b=n&255}else{[r,g,b]=(c.match(/\d+/g)||[0,0,0]).map(Number)}const f=v=>Math.max(0,Math.min(255,Math.round(v+a)));return'rgb('+f(r)+','+f(g)+','+f(b)+')'}
 G.shade=shade;
@@ -2334,10 +2354,10 @@ const GFX=(()=>{
     // zooming out after a big meal changes every object's size step at once: build at most 2 sprites per frame and draw the
     // nearest already-built size (scaled) for the rest, finishing them in idle time - no burst of sprite rebuilds in one frame
     if(budF!==G.fno){budF=G.fno;bud=2}const near=NEAR.get(bk);
-    if(near&&bud<=0){if(!SQ.has(k)){SQ.set(k,[o,rq]);if(!sqOn){sqOn=true;(window.requestIdleCallback?f=>requestIdleCallback(f,{timeout:60}):f=>setTimeout(f,16))(drainSQ)}}return near}
-    bud--;e=build(o,rq);STAT.builds++;CACHE.set(k,e);NEAR.set(bk,e);if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value);return e}
+    if(near&&(bud<=0||G.state==="play")){if(!SQ.has(k)){SQ.set(k,[o,rq]);if(!sqOn){sqOn=true;(window.requestIdleCallback?f=>requestIdleCallback(f,{timeout:60}):f=>setTimeout(f,16))(drainSQ)}}return near}
+    bud--;PERF.tag('sprite-build');e=build(o,rq);STAT.builds++;CACHE.set(k,e);NEAR.set(bk,e);if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value);return e}
   const NEAR=new Map(),SQ=new Map();let bud=0,budF=-1,sqOn=false;
-  function drainSQ(dl){sqOn=false;let n=0;for(const[k,[o,rq]]of SQ){SQ.delete(k);if(!CACHE.has(k)){const e=build(o,rq);STAT.builds++;CACHE.set(k,e);if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value)}if(++n>=2)break}
+  function drainSQ(dl){sqOn=false;let n=0;for(const[k,[o,rq]]of SQ){SQ.delete(k);if(!CACHE.has(k)){PERF.tag('idle-sprite-build');const e=build(o,rq);STAT.builds++;CACHE.set(k,e);if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value)}if(++n>=2||(dl&&dl.timeRemaining&&!dl.didTimeout&&dl.timeRemaining()<6))break}
     if(SQ.size){sqOn=true;(window.requestIdleCallback?f=>requestIdleCallback(f,{timeout:60}):f=>setTimeout(f,16))(drainSQ)}}
   const isPlant=T=>T.shape==='tree'||T.shape==='crop'||T.orchTree||/tree|pine|palm|cactus|flower|corn|grape|plant|bush|fern|mushroom/.test(T.id||'');
   function obj(o,sx0,sy0,z){const T=o.T,k=depth(sy0),rr=o.size*z*k,hh=T.h*z*k;if(!OPT.sprites){ctx.drawImage(AO,sx0-rr*1.05,sy0-rr*0.34,rr*2.1,rr*0.68);drawObj(o,sx0,sy0,z*k,1);return}
@@ -2500,8 +2520,8 @@ const GFX=(()=>{
      the same), and only then the effect quality. One step at a time, with a cool-down, so there is never a run of hitches.
      Each new level start probes one resolution step back up. */
   let Q=2,slow=0,ema=16.7;const RS=[1,0.85,0.72];
-  function setRS(v){if(G.rs===v)return;G.rs=v;resize()}
-  function frameTime(ms){if(G.GFX.lockQ||!(ms>0)||ms>200)return;ema+=(ms-ema)*0.05;if(ema>21){if(++slow>60){slow=0;ema=16.7;const i=RS.indexOf(G.rs);if(i<RS.length-1)setRS(RS[i+1]);else if(Q>0){Q--;apply()}}}else slow=Math.max(0,slow-2)}
+  function setRS(v){if(G.rs===v)return;PERF.tag('res-change');G.rs=v;resize()}
+  function frameTime(ms){if(G.GFX.lockQ||!(ms>0)||ms>200)return;ema+=(ms-ema)*0.05;if(ema>21){if(++slow>60){slow=0;ema=16.7;const i=RS.indexOf(G.rs);if(i<RS.length-1)setRS(RS[i+1]);else if(Q>0){Q--;PERF.tag('quality-down');apply()}}}else slow=Math.max(0,slow-2)}
   G.use({levelStart(){slow=0;ema=16.7;if(G.GFX.lockQ)return;const i=RS.indexOf(G.rs);if(i>0)setRS(RS[i-1])}});
   function apply(){OPT.cast=OPT.clouds=OPT.water=OPT.grass=OPT.tw=Q>=2?1:0;OPT.sprites=Q>=1?1:0}
   return{light,rim,sprite,bdFor:L=>{const keep=LV;LV=null;try{return level(L).bd}finally{LV=keep}},frameTime,get quality(){return Q},set quality(v){Q=v;apply()},STAT,OPT,depth,obj,head,headShadow,grade,post,backdrop,groundFx,overlay,cacheSize:()=>CACHE.size,clear:()=>CACHE.clear()}})();
@@ -2519,7 +2539,7 @@ const GTILES={key:'',tiles:new Map(),TS:256,
     const TS=this.TS,kx=gw/src.width,ky=gh/src.height,CW=cv.width,CH=cv.height,i0=Math.max(0,Math.floor(-gx/TS)),j0=Math.max(0,Math.floor(-gy/TS)),i1=Math.min(Math.ceil(gw/TS)-1,Math.floor((CW-gx)/TS)),j1=Math.min(Math.ceil(gh/TS)-1,Math.floor((CH-gy)/TS));
     ctx.setTransform(1,0,0,1,0,0);
     for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++){const k=j*4096+i;let t=this.tiles.get(k);
-      if(!t){const w=Math.min(TS,gw-i*TS),h=Math.min(TS,gh-j*TS);t=document.createElement('canvas');t.width=w;t.height=h;t.getContext('2d').drawImage(src,i*TS/kx,j*TS/ky,w/kx,h/ky,0,0,w,h);
+      if(!t){PERF.tag('tile-build');const w=Math.min(TS,gw-i*TS),h=Math.min(TS,gh-j*TS);t=document.createElement('canvas');t.width=w;t.height=h;t.getContext('2d').drawImage(src,i*TS/kx,j*TS/ky,w/kx,h/ky,0,0,w,h);
         if(this.tiles.size>140)this.tiles.delete(this.tiles.keys().next().value);this.tiles.set(k,t)}
       ctx.drawImage(t,gx+i*TS,gy+j*TS)}
     ctx.setTransform(m);this.prep(L,src,d,m)},
@@ -2532,7 +2552,7 @@ const GTILES={key:'',tiles:new Map(),TS:256,
     const TS=this.TS,gx=Math.round(((-G.cam.x)*zn+G.W/2)*d+m.e),gy=Math.round(((-G.cam.y)*zn*TILT+G.H*0.55)*d+m.f),CW=cv.width,CH=cv.height,
       i0=Math.max(0,Math.floor(-gx/TS)-1),j0=Math.max(0,Math.floor(-gy/TS)-1),i1=Math.min(Math.ceil(gw/TS)-1,Math.floor((CW-gx)/TS)+1),j1=Math.min(Math.ceil(gh/TS)-1,Math.floor((CH-gy)/TS)+1),todo=[];
     for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++)if(!N.tiles.has(j*4096+i))todo.push([i,j]);if(!todo.length)return;N.busy=true;
-    const run=dl=>{let n=0;while(todo.length&&(n<1||(dl&&dl.timeRemaining&&dl.timeRemaining()>6))){const[i,j]=todo.shift();if(this.next!==N)break;N.tiles.set(j*4096+i,this.make(src,gw/src.width,gh/src.height,gw,gh,i,j));n++}
+    const run=dl=>{PERF.tag('idle-tile-prebuild');let n=0;while(todo.length&&(n<1||(dl&&dl.timeRemaining&&dl.timeRemaining()>6))){const[i,j]=todo.shift();if(this.next!==N)break;N.tiles.set(j*4096+i,this.make(src,gw/src.width,gh/src.height,gw,gh,i,j));n++}
       if(todo.length&&this.next===N)(window.requestIdleCallback?requestIdleCallback(run,{timeout:200}):setTimeout(run,16));else N.busy=false};
     (window.requestIdleCallback?requestIdleCallback(run,{timeout:200}):setTimeout(run,16))}};
 function render(){
@@ -2581,7 +2601,7 @@ function render(){
   ctx.setTransform(G.dpr,0,0,G.dpr,0,0);
   G.hook('drawHud',ctx);
 }
-function buildGround(L){const S=1.5,W=L.size[0],H=L.size[1],c=document.createElement('canvas');c.width=W*S;c.height=H*S;const g=c.getContext('2d');g.scale(S,S);
+function buildGround(L){PERF.tag('ground-build');const S=1.5,W=L.size[0],H=L.size[1],c=document.createElement('canvas');c.width=W*S;c.height=H*S;const g=c.getContext('2d');g.scale(S,S);
   let seed=L.name.length*999+7;const rn=()=>((seed=Math.imul(seed^seed>>>15,2246822519)+0x9e3779b9>>>0)/4294967296);
   const ST=L.style||{rows:'furrow',path:['#a9774a','#d9a86a','#e8bf84'],deco:'tufts',border:['#8a5520','#e0a860']},G0=L.ground[0],G1=L.ground[1];
   g.fillStyle=G0;g.fillRect(0,0,W,H);
@@ -2651,11 +2671,11 @@ function buildGround(L){const S=1.5,W=L.size[0],H=L.size[1],c=document.createEle
   for(let y=4;y<H;y+=40)for(const x of[4,W-4]){if(FEATURES.hiFiGraphics){GFX.post(g,x,y,shade(BD[0],30).replace(/rgb\((\d+),(\d+),(\d+)\)/,(m,a,b,c)=>'#'+[a,b,c].map(v=>(+v).toString(16).padStart(2,'0')).join('')));continue}g.fillStyle=shade(BD[0],30);g.fillRect(x-3,y-6,6,10);g.strokeRect(x-3,y-6,6,10)}
   G.groundCv=c;G.groundFor=L;G.groundHF=FEATURES.hiFiGraphics}
 let last=performance.now();
-function frame(now){const dt=Math.min(0.05,(now-last)/1000);if(FEATURES.hiFiGraphics&&G.state==='play')GFX.frameTime(now-last);last=now;G.t+=dt;
+function frame(now){const iv=now-last,w0=performance.now();if(PERF.on&&G.state==='play')PERF.frame(iv,PERF.lw||0,G.L?G.L.name:'');else if(PERF.on)PERF.cur.length=0;const dt=Math.min(0.05,(now-last)/1000);if(FEATURES.hiFiGraphics&&G.state==='play')GFX.frameTime(now-last);last=now;G.t+=dt;
   if(G.state==='play')update(dt);if(G.state==='play'||G.state==='end'||G.state==='pause')render();
   // HUD DOM: write only when the value changes; progress bar animates with transform (compositor) instead of width (layout every frame for 0.2s after each swallow)
   const sc=G.score||0;if(sc!==HUDV.s){HUDV.s=sc;HUDV.se.textContent=sc}const pr=G.L?Math.round(G.progress()*1000)/1000:0;if(pr!==HUDV.p){HUDV.p=pr;HUDV.be.style.transform='scaleX('+pr+')'}
-  requestAnimationFrame(frame)}
+  if(PERF.on)PERF.lw=performance.now()-w0;requestAnimationFrame(frame)}
 const HUDV={s:null,p:null,se:$('hScore'),be:$('barFill')};
 G.step=(sec)=>{for(let t=0;t<sec&&G.state==='play';t+=1/60)update(1/60);render()}; // test helper
 G.stepNoRender=(dt)=>update(dt); // test helper
@@ -2867,7 +2887,7 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
      Rainbow tiers bake glow + outline only and draw their cycling gradient fill live (no blur, cheap). */
   const TXC=new Map();
   const textSprite=(txt,font,t,glow,word)=>{const key=txt+'|'+font+'|'+t.word+'|'+glow,hit=TXC.get(key);if(hit){TXC.delete(key);TXC.set(key,hit);return hit}
-    const R=Math.min(3,Math.max(2,G.dpr||2))*1.15,m=document.createElement('canvas').getContext('2d');m.font=font;const i=T.indexOf(t),bl=glow?(word?20:14+i*4):0,tw=m.measureText(txt).width,pad=6+bl*0.9,
+    PERF.tag('text-build');const R=Math.min(3,Math.max(2,G.dpr||2))*1.15,m=document.createElement('canvas').getContext('2d');m.font=font;const i=T.indexOf(t),bl=glow?(word?20:14+i*4):0,tw=m.measureText(txt).width,pad=6+bl*0.9,
       w=tw+pad*2,h=(word?34:30)*1.15+pad*2,cv=document.createElement('canvas');cv.width=Math.ceil(w*R);cv.height=Math.ceil(h*R);const c=cv.getContext('2d');
     c.scale(R,R);c.translate(w/2,h/2);c.font=font;c.textAlign='center';c.textBaseline='middle';c.lineJoin='round';
     if(bl){const gc=document.createElement('canvas');gc.width=Math.ceil(w);gc.height=Math.ceil(h);const g=gc.getContext('2d');g.translate(w/2,h/2);g.font=font;g.textAlign='center';g.textBaseline='middle';g.lineJoin='round';
@@ -2896,7 +2916,7 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
   G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;G.COMBO_FX=CF;
   G.comboShake=()=>shk>0.05&&CF.shake?[(Math.random()-0.5)*2*shk,(Math.random()-0.5)*2*shk]:null;
   G.use({levelStart(G){G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;pop=shk=flash=0;tierShow=null;const g=FEATURES.hiFiGraphics&&GFX.quality>=2;for(const t of T)textSprite(t.word,'italic 900 34px system-ui',t,g,true);IQ.length=0;warmAhead(2,8)},
-  update(G,dt){if(pend){const h=pend.h,i=T.indexOf(h);tierShow={t:0,tier:h,n:pend.n};burst(h.burst,h,true);if(CF.shake)shk=Math.max(shk,h.shake);if(CF.flash&&h.flash){flash=h.flash;flashCol=h.glow}if(pend.c>0)coinShower(pend.c);HEAD_ST.chew=0.6;G.hook('comboTier',h,i,pend.n);pend=null;pendSmall=null}
+  update(G,dt){if(pend){const h=pend.h,i=T.indexOf(h);tierShow={t:0,tier:h,n:pend.n};burst(h.burst,h,true);if(CF.shake)shk=Math.max(shk,h.shake);if(CF.flash&&h.flash){flash=h.flash;flashCol=h.glow}if(pend.c>0)coinShower(pend.c);HEAD_ST.chew=0.6;PERF.tag('combo-tier');G.hook('comboTier',h,i,pend.n);pend=null;pendSmall=null}
     else if(pendSmall){burst(2+T.indexOf(pendSmall)*2,pendSmall,false);pendSmall=null}
     if((G.comboT-=dt)<=0)G.combo=0;pop=Math.max(0,pop-dt*3.2);shk=Math.max(0,shk-dt*shk*7-dt*2);flash=Math.max(0,flash-dt*1.4);if(tierShow&&(tierShow.t+=dt)>1.3)tierShow=null},
   modifyScore(G,o,p){G.combo++;warmAhead(G.combo,3);G.comboMax=Math.max(G.comboMax,G.combo);G.comboT=CF.window;pop=1;G.comboHit=null;
@@ -3502,6 +3522,7 @@ if(FEATURES.settings){
   $('setRestore').onclick=async()=>{const r=await IAP.restore();if(r&&r.ok)G.toast(r.test?'Test build: nothing to restore.':r.restored?'Restored '+r.restored+' purchase(s)!':'Nothing to restore.')};
   $('setHow').onclick=()=>{if($('sHow')){G.show('sHow');$('sHow').scrollTop=0}};
   $('setPriv').onclick=()=>G.openLink(BUILD.privacyUrl);$('setSup').onclick=()=>G.openLink(BUILD.supportUrl);
+  {const v=$('setVer');let n=0,t0=0;v.onclick=()=>{const t=performance.now();n=t-t0<1500?n+1:1;t0=t;if(n>=5){n=0;PERF.set(!PERF.on);G.store&&G.store.toast&&G.store.toast(PERF.on?'Performance overlay ON':'Performance overlay off')}}}
   $('setVer').innerHTML='Sly Escape v'+BUILD.version+' ('+BUILD.build+')'+(BUILD.release?'':' · test build')+'<br>Help: '+BUILD.supportEmail;
   $('setBack').onclick=()=>G.show('sMenu');
   G.settings={open(){sync();G.show('sSet');scr.scrollTop=0}};
