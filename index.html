@@ -95,16 +95,21 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 <script>
 'use strict';
 /* ===================== FEATURES: flip to true/false ===================== */
-/* PLAYER_SPEED: movement speed multiplier for the head (1 = original speed). Lower = slower. Tweak here. */
-const PLAYER_SPEED=0.67;
+/* ===================== SPEED: easy tweaks =====================
+ headSpeed:   how fast the head moves (1 = original speed; 0.67 = builds 1-6; lower = slower).
+ chaserSpeed: multiplies every chaser's speed. Chasers move at a per-level multiple of the head's starting speed
+              (CHASER ratio, kept from the original balance), so changing headSpeed slows/speeds chasers with it.
+ levelTime:   multiplies every level's time limit (1.45 in builds 1-6; 1.6 keeps about the same spare time at the slower head). */
+const SPEED={headSpeed:0.52,chaserSpeed:1,levelTime:1.6};
+const PLAYER_SPEED=SPEED.headSpeed;
 /* LEVEL_TIME_SCALE: level time limits are multiplied by this to balance slower movement. */
-const LEVEL_TIME_SCALE=1.45;
+const LEVEL_TIME_SCALE=SPEED.levelTime;
 const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fair at the slower PLAYER_SPEED)
 /* ===================== BUILD (store release config) =====================
  release:true for App Store / Google Play builds: forces unlockAll off, ignores ?dev=1 (no tester mode),
  and hides the coin shop unless a real billing provider (window.SlyBilling) is attached, so TEST banners never ship.
  Bump version/build for every store upload (also bump CACHE in sw.js so the offline copy updates). */
-const BUILD={version:'1.0.0',build:6,release:false,
+const BUILD={version:'1.0.0',build:7,release:false,
   supportEmail:'slyescape@mail.grokbot.com',privacyUrl:'privacy.html',supportUrl:'support.html'};
 const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
@@ -877,12 +882,16 @@ const Game={
   fx:[],t:0,
 };
 // balance for PLAYER_SPEED: longer time limits, slightly slower farmer
-LEVELS.forEach(L=>{L.time=Math.round(L.time*LEVEL_TIME_SCALE);if(L.farmer)L.farmer=Math.round(L.farmer*FARMER_SPEED_SCALE)});
+// chasers: each level's farmer speed becomes a ratio of the head's starting speed (ratios from the original balance:
+// farmer px/s x FARMER_SPEED_SCALE vs the head at headSpeed 0.67), so chaser speed = ratio x current head speed.
+const HEAD_BASE=(230+16*1.2),G_CHASE_REF=HEAD_BASE*0.67;
+LEVELS.forEach(L=>{L.time=Math.round(L.time*LEVEL_TIME_SCALE);if(L.farmer){L.chaseRatio=L.farmer*FARMER_SPEED_SCALE/G_CHASE_REF;L.farmer=Math.round(L.chaseRatio*HEAD_BASE*PLAYER_SPEED*SPEED.chaserSpeed)}});
 const G=Game;window.HG=Game;G.FEATURES=FEATURES;G.LEVELS=LEVELS;G.OBJECT_TYPES=OBJECT_TYPES;G.MAPS=MAPS;G.CHASERS=CHASERS;G.HOLE_SKINS=HOLE_SKINS;G.HEADS=HEADS;G.HEAD_ST=HEAD_ST;G.drawHead=(c,x,y,r,id,st,t=1)=>{st=st||{};drawHoleBase(c,x,y,r,r*TILT,HEADS[id],t,false,st);drawHoleOver(c,x,y,r,r*TILT,HEADS[id],t,st)};G.STORE_ITEMS=STORE_ITEMS;G.skin=_skinSel;
 /* Render resolution: devicePixelRatio capped at 2 (3x phones drew 2.25x the pixels for no visible gain), times an adaptive
    render scale G.rs (1 / 0.85 / 0.72) that GFX.frameTime lowers when frames are slow and raises again when there is headroom. */
 G.rs=1;
-function resize(){G.dpr=Math.min(2,devicePixelRatio||1)*G.rs;G.W=innerWidth;G.H=innerHeight;cv.width=Math.round(G.W*G.dpr);cv.height=Math.round(G.H*G.dpr)}
+const DPR_CAP=matchMedia('(pointer:coarse)').matches?1.75:2; // phones/tablets: 1.75x (looks the same on a phone screen, ~23% fewer pixels than 2x); mouse devices: 2x
+function resize(){G.dpr=Math.min(DPR_CAP,devicePixelRatio||1)*G.rs;G.W=innerWidth;G.H=innerHeight;cv.width=Math.round(G.W*G.dpr);cv.height=Math.round(G.H*G.dpr)}
 addEventListener('resize',resize);resize();
 function rnd(a,b){return a+Math.random()*(b-a)}
 G.show=id=>{document.querySelectorAll('.scr').forEach(s=>s.classList.toggle('on',s.id===id));$('hudTop').classList.toggle('on',!id)};
@@ -2506,14 +2515,26 @@ G.emojiSprite=emojiSprite;
    Tiles are rebuilt only when the zoom step, resolution or level changes. */
 const GTILES={key:'',tiles:new Map(),TS:256,
   draw(L,ax,ay,bx,by){const src=G.groundCv,m=ctx.getTransform(),d=m.a,gx=Math.round(ax*d+m.e),gy=Math.round(ay*d+m.f),gw=Math.round((bx-ax)*d),gh=Math.round((by-ay)*d);
-    const key=L.name+'|'+gw+'|'+gh+'|'+src.width;if(key!==this.key){this.key=key;this.tiles.clear()}
+    const key=L.name+'|'+gw+'|'+gh+'|'+src.width;if(key!==this.key){this.key=key;if(this.next&&this.next.key===key){this.tiles=this.next.tiles;this.next=null;this.hits=(this.hits||0)+1}else this.tiles.clear()}
     const TS=this.TS,kx=gw/src.width,ky=gh/src.height,CW=cv.width,CH=cv.height,i0=Math.max(0,Math.floor(-gx/TS)),j0=Math.max(0,Math.floor(-gy/TS)),i1=Math.min(Math.ceil(gw/TS)-1,Math.floor((CW-gx)/TS)),j1=Math.min(Math.ceil(gh/TS)-1,Math.floor((CH-gy)/TS));
     ctx.setTransform(1,0,0,1,0,0);
     for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++){const k=j*4096+i;let t=this.tiles.get(k);
       if(!t){const w=Math.min(TS,gw-i*TS),h=Math.min(TS,gh-j*TS);t=document.createElement('canvas');t.width=w;t.height=h;t.getContext('2d').drawImage(src,i*TS/kx,j*TS/ky,w/kx,h/ky,0,0,w,h);
         if(this.tiles.size>140)this.tiles.delete(this.tiles.keys().next().value);this.tiles.set(k,t)}
       ctx.drawImage(t,gx+i*TS,gy+j*TS)}
-    ctx.setTransform(m)}};
+    ctx.setTransform(m);this.prep(L,src,d,m)},
+  // the head keeps growing, so the zoom's next step is predictable: build that step's visible tiles in idle time,
+  // so the zoom step itself swaps in ready tiles instead of rebuilding ~30 tiles in one frame
+  make(src,kx,ky,gw,gh,i,j){const TS=this.TS,w=Math.min(TS,gw-i*TS),h=Math.min(TS,gh-j*TS),t=document.createElement('canvas');t.width=w;t.height=h;t.getContext('2d').drawImage(src,i*TS/kx,j*TS/ky,w/kx,h/ky,0,0,w,h);return t},
+  prep(L,src,d,m){const ST=Math.log(1.012),zq=G.zoom();if(G.zoomRaw()>=zq||zq<=0.56)return;const zn=Math.exp((Math.ceil(Math.log(zq)/ST-1e-6)-1)*ST);
+    const gw=Math.round(L.size[0]*zn*d),gh=Math.round(L.size[1]*zn*TILT*d),key=L.name+'|'+gw+'|'+gh+'|'+src.width;
+    if(!this.next||this.next.key!==key)this.next={key,tiles:new Map()};const N=this.next;if(N.busy)return;
+    const TS=this.TS,gx=Math.round(((-G.cam.x)*zn+G.W/2)*d+m.e),gy=Math.round(((-G.cam.y)*zn*TILT+G.H*0.55)*d+m.f),CW=cv.width,CH=cv.height,
+      i0=Math.max(0,Math.floor(-gx/TS)-1),j0=Math.max(0,Math.floor(-gy/TS)-1),i1=Math.min(Math.ceil(gw/TS)-1,Math.floor((CW-gx)/TS)+1),j1=Math.min(Math.ceil(gh/TS)-1,Math.floor((CH-gy)/TS)+1),todo=[];
+    for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++)if(!N.tiles.has(j*4096+i))todo.push([i,j]);if(!todo.length)return;N.busy=true;
+    const run=dl=>{let n=0;while(todo.length&&(n<1||(dl&&dl.timeRemaining&&dl.timeRemaining()>6))){const[i,j]=todo.shift();if(this.next!==N)break;N.tiles.set(j*4096+i,this.make(src,gw/src.width,gh/src.height,gw,gh,i,j));n++}
+      if(todo.length&&this.next===N)(window.requestIdleCallback?requestIdleCallback(run,{timeout:200}):setTimeout(run,16));else N.busy=false};
+    (window.requestIdleCallback?requestIdleCallback(run,{timeout:200}):setTimeout(run,16))}};
 function render(){
   ctx.setTransform(G.dpr,0,0,G.dpr,0,0);
   if(!G.L){ctx.fillStyle='#3d7a34';ctx.fillRect(0,0,G.W,G.H);return}const shk=G.comboShake&&G.comboShake(),L=G.L,z=G.zoom(),h=G.hole;
