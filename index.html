@@ -109,7 +109,7 @@ const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fai
  release:true for App Store / Google Play builds: forces unlockAll off, ignores ?dev=1 (no tester mode),
  and hides the coin shop unless a real billing provider (window.SlyBilling) is attached, so TEST banners never ship.
  Bump version/build for every store upload (also bump CACHE in sw.js so the offline copy updates). */
-const BUILD={version:'1.0.0',build:10,release:false,
+const BUILD={version:'1.0.0',build:11,release:false,
   supportEmail:'slyescape@mail.grokbot.com',privacyUrl:'privacy.html',supportUrl:'support.html'};
 const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
@@ -2335,10 +2335,10 @@ const GFX=(()=>{
     for(let i=0;i<26;i++){const cx=rn()*160,cy=rn()*160,r=10+rn()*18;for(const dx of[-160,0,160])for(const dy of[-160,0,160]){x.beginPath();for(let a=0;a<=6.4;a+=0.35){const rr=r*(0.8+0.3*Math.sin(a*3+i));x.lineTo(cx+dx+Math.cos(a)*rr,cy+dy+Math.sin(a)*rr)}x.stroke()}} // drawn wrapped so the tile is seamless
     return bmp(c)})();
   /* ---------- object sprites ---------- */
-  const SPRITE_MAXPX=160000; // biggest sprite canvas (pixels): caps the cost of one sprite build on huge objects
-  const STAT={builds:0},OPT={headPass:0,fx:1,overlay:1,clouds:1,grass:1,water:1,tw:1,head:1,live:1,cast:1,sprites:1};const CACHE=new Map(),MAXC=420;let gid=1;const SD=()=>Math.min(2,G.dpr||1);
+  const TOUCH=matchMedia&&matchMedia('(pointer:coarse)').matches,SPRITE_MAXPX=TOUCH?110000:160000; // biggest sprite canvas (pixels): caps the cost of one sprite build on huge objects
+  const STAT={builds:0},OPT={headPass:0,fx:1,overlay:1,clouds:1,grass:1,water:1,tw:1,head:1,live:1,cast:1,sprites:1};const CACHE=new Map(),MAXC=420;let gid=1;const SD=()=>Math.min(TOUCH?1.5:2,G.dpr||1);
   const scratch=mk(8,8),sx=scratch.getContext('2d');
-  function frameOf(o){const T=o.T;if(T.shape==='farmer')return 1+Math.floor((((G.t*(o.edible?14:10))/6.2832)%1+1)%1*12);if(T.shape==='animal'&&o.moving)return 1+Math.floor((((G.t*14+(o.rot||0))/6.2832)%1+1)%1*8);
+  function frameOf(o){if(o._fr!=null)return o._fr;const T=o.T;if(T.shape==='farmer')return 1+Math.floor((((G.t*(o.edible?14:10))/6.2832)%1+1)%1*12);if(T.shape==='animal'&&o.moving)return 1+Math.floor((((G.t*14+(o.rot||0))/6.2832)%1+1)%1*8);
     if(T.shape==='emoji'&&T.wander&&o.moving)return 1+Math.floor((((G.t*10+(o.rot||0))/6.2832)%1+1)%1*8);return 0}
   function bbox(T,r,hh,o){const S=T.shape;let half,top; // tight per-shape bounds (transparent margins cost fill-rate)
     if(S==='emoji'){half=1.2*r;top=2.3*r}else if(S==='animal'){half=1.5*r;top=Math.max(2.15*r,hh+0.4*r)}else if(S==='box'){half=0.8*r;top=hh+0.85*r}else if(S==='house'){half=0.95*r;top=hh+0.9*r}
@@ -2368,23 +2368,37 @@ const GFX=(()=>{
     const k=T._gid+'|'+o.size+'|'+rq.toFixed(2)+'|'+(o.face||1)+'|'+frameOf(o)+'|'+(o.scared?1:0)+'|'+(o.ck||'');let e=CACHE.get(k);
     const bk=T._gid+'|'+o.size+'|'+(o.face||1)+'|'+frameOf(o)+'|'+(o.scared?1:0)+'|'+(o.ck||'');
     const lk=T._gid+'|'+o.size;if(e){CACHE.delete(k);CACHE.set(k,e);NEAR.set(bk,e);NEAR.set(lk,e);return e}
+    const gk=T._gid+'|'+(o.face||1)+'|'+frameOf(o)+'|'+(o.scared?1:0)+'|'+(o.ck||'');if(G.state==='play'&&!PW){const b=BIG.get(gk);if(b&&b.rq>=rr*0.85)return b}
     // zooming out after a big meal changes every object's size step at once: build at most 2 sprites per frame and draw the
     // nearest already-built size (scaled) for the rest, finishing them in idle time - no burst of sprite rebuilds in one frame
-    if(budF!==G.fno){budF=G.fno;bud=2}const near=NEAR.get(bk)||(G.state==='play'?NEAR.get(lk):null);
-    if(near&&(bud<=0||G.state==="play")){if(!SQ.has(k)){SQ.set(k,[o,rq,bk,lk]);if(!sqOn){sqOn=true;(window.requestIdleCallback?f=>requestIdleCallback(f,{timeout:60}):f=>setTimeout(f,16))(drainSQ)}}return near}
-    bud--;PERF.tag('sprite-build');e=build(o,rq);STAT.builds++;CACHE.set(k,e);NEAR.set(bk,e);NEAR.set(lk,e);if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value);return e}
-  const NEAR=new Map(),SQ=new Map();let bud=0,budF=-1,sqOn=false;
+    if(budF!==G.fno){budF=G.fno;bud=2}const near=PW?null:NEAR.get(bk)||(G.state==='play'?NEAR.get(lk):null);
+    if(near&&(bud<=0||G.state==="play")){if(!SQ.has(k)){SQ.set(k,[o,rq,bk,lk,gk]);if(!sqOn){sqOn=true;(window.requestIdleCallback?f=>requestIdleCallback(f,{timeout:60}):f=>setTimeout(f,16))(drainSQ)}}return near}
+    bud--;PERF.tag('sprite-build');e=build(o,rq);STAT.builds++;CACHE.set(k,e);NEAR.set(bk,e);NEAR.set(lk,e);bigSet(gk,e);if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value);return e}
+  const NEAR=new Map(),SQ=new Map(),BIG=new Map(),bigSet=(bk,e)=>{const b=BIG.get(bk);if(!b||b.rq<e.rq)BIG.set(bk,e)};let bud=0,budF=-1,sqOn=false;
   function buildQ(tag){for(const[k,[o,rq,bk,lk]]of SQ){SQ.delete(k);if(CACHE.has(k))continue;PERF.tag(tag);const e=build(o,rq);STAT.builds++;CACHE.set(k,e);if(bk){if(!NEAR.has(bk))NEAR.set(bk,e);if(!NEAR.has(lk))NEAR.set(lk,e)}if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value);return true}return false}
   // called at the end of each rAF frame: Android WebView rarely fires idle callbacks during a continuous rAF loop,
   // so queued sprites are finished here instead - at most one per frame, and only when this frame was light
-  let JOB=null;
-  function pumpQ(work){if(work>6)return;if(!JOB){for(const[k,v]of SQ){SQ.delete(k);if(!CACHE.has(k)){JOB={k,v,g:buildGen(v[0],v[1])};break}}if(!JOB)return}
-    PERF.tag('queued-sprite-step');const r=JOB.g.next();if(!r.done)return;const{k,v}=JOB,e=r.value;JOB=null;STAT.builds++;CACHE.set(k,e);
-    if(v[2]){if(!NEAR.has(v[2]))NEAR.set(v[2],e);if(!NEAR.has(v[3]))NEAR.set(v[3],e)}if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value)}
+  let JOB=null,WARM=null,lastStep=-9,PW=false;
+  function pumpQ(work){if(WARM){const w=WARM;WARM=null;PERF.tag('sprite-upload-warm');ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=0.004;ctx.drawImage(w.c,0,0,1,1);ctx.drawImage(w.s,0,0,1,1);ctx.restore();return true}
+    if(work>6||G.fno-lastStep<3)return false;if(!JOB){for(const[k,v]of SQ){SQ.delete(k);if(!CACHE.has(k)){JOB={k,v,g:buildGen(v[0],v[1])};break}}if(!JOB)return}
+    lastStep=G.fno;PERF.tag('queued-sprite-step');const r=JOB.g.next();if(!r.done)return true;const{k,v}=JOB,e=r.value;JOB=null;STAT.builds++;STAT.midBuilds=(STAT.midBuilds||0)+1;CACHE.set(k,e);WARM=e;if(v[4])bigSet(v[4],e);
+    if(v[2]){if(!NEAR.has(v[2]))NEAR.set(v[2],e);if(!NEAR.has(v[3]))NEAR.set(v[3],e)}if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value);return true}
   // level start (loading moment): build every object's sprite at the current zoom up front, time-boxed; leftovers queue
-  function prewarm(ms){const t0=performance.now(),z=G.zoom(),seen=new Set();for(const o of G.objs){const T=o.T;if(!T||T.draw&&T.shape!=='farmer')continue;if(T.shape==='farmer')o.ck=((o.ch&&o.ch.id)||'farmer')+(o.edible?'E':'');
-      const kk=(T._gid||0)+'|'+o.size+'|'+(o.ck||'')+'|'+(o.face||1);if(seen.has(kk))continue;seen.add(kk);const rr=o.size*z;
-      if(performance.now()-t0<ms){bud=99;budF=G.fno;sprite(o,rr)}else{const rq=Math.pow(1.07,Math.round(Math.log(Math.max(2,rr))/Math.log(1.07)));{if(!T._gid)T._gid=gid++;const k=T._gid+'|'+o.size+'|'+rq.toFixed(2)+'|'+(o.face||1)+'|'+frameOf(o)+'|'+(o.scared?1:0)+'|'+(o.ck||'');if(!CACHE.has(k))SQ.set(k,[o,rq,T._gid+'|'+o.size+'|'+(o.face||1)+'|'+frameOf(o)+'|'+(o.scared?1:0)+'|'+(o.ck||''),T._gid+'|'+o.size])}}}}
+  // level load: build every object's sprite (all animation frames, both facings, calm + scared) at the largest size it can
+  // be drawn at right now (bottom-of-screen depth). The head only grows, so the view only zooms out: during play every later
+  // size is drawn by scaling one of these down (see BIG) instead of building a new sprite mid-level.
+  function prewarm(ms){const t0=performance.now(),z=G.zoom(),seen=new Set(),jobs=[];BIG.clear();SQ.clear();JOB=null;WARM=null;PW=true;try{const mx=new Map();for(const o of G.objs)if(o.T)mx.set(o.T,Math.max(mx.get(o.T)||0,o.size));
+    for(const o of G.objs){const T=o.T;if(!T||T.draw&&T.shape!=='farmer')continue;if(T.shape==='farmer')o.ck=((o.ch&&o.ch.id)||'farmer')+(o.edible?'E':'');
+      if(!T._gid)T._gid=gid++;const kk=T._gid+'|'+(o.ck||'');if(seen.has(kk))continue;seen.add(kk);
+      const anim=T.shape==='farmer'?12:(T.shape==='animal'||(T.shape==='emoji'&&T.wander))?8:0,frames=[];if(T.shape!=='farmer')frames.push(0);for(let f=1;f<=anim;f++)frames.push(f);
+      const faces=[1,-1],sc=T.shape==='animal'?[0,1]:[0];
+      for(const s of sc)for(const fa of faces)for(const fr of frames)jobs.push({o,fr,fa,s:s,pri:(fa===(o.face||1)?0:1)+s*2})}
+    jobs.sort((a,b)=>a.pri-b.pri);
+    for(const j of jobs){const o=j.o,sf=o.face,ss=o.scared;o._fr=j.fr;o.face=j.fa;o.scared=!!j.s;const rr=mx.get(o.T)*z*1.16*1.04;
+      try{if(performance.now()-t0<ms){bud=99;budF=G.fno;sprite(o,rr)}else{const T=o.T;if(!T._gid)T._gid=gid++;const rq=Math.pow(1.07,Math.ceil(Math.log(Math.max(2,rr))/Math.log(1.07))),
+        bk=T._gid+'|'+o.size+'|'+j.fa+'|'+j.fr+'|'+(j.s?1:0)+'|'+(o.ck||''),k=T._gid+'|'+o.size+'|'+rq.toFixed(2)+'|'+j.fa+'|'+j.fr+'|'+(j.s?1:0)+'|'+(o.ck||'');
+        if(!CACHE.has(k))SQ.set(k,[Object.assign({},o,{_fr:j.fr,face:j.fa,scared:!!j.s}),rq,bk,T._gid+'|'+o.size,T._gid+'|'+j.fa+'|'+j.fr+'|'+(j.s?1:0)+'|'+(o.ck||'')])}}finally{o._fr=null;delete o._fr;o.face=sf;o.scared=ss}}
+    }finally{PW=false}STAT.prewarm={jobs:jobs.length,ms:Math.round(performance.now()-t0),queued:SQ.size}}
   function drainSQ(dl){sqOn=false;if(G.state==='play')return;let n=0;while(buildQ('idle-sprite-build')){if(++n>=1&&!(dl&&dl.timeRemaining&&!dl.didTimeout&&dl.timeRemaining()>12))break}
     if(SQ.size){sqOn=true;(window.requestIdleCallback?f=>requestIdleCallback(f,{timeout:60}):f=>setTimeout(f,16))(drainSQ)}}
   const isPlant=T=>T.shape==='tree'||T.shape==='crop'||T.orchTree||/tree|pine|palm|cactus|flower|corn|grape|plant|bush|fern|mushroom/.test(T.id||'');
@@ -2550,7 +2564,7 @@ const GFX=(()=>{
   let Q=2,slow=0,ema=16.7;const RS=[1,0.85,0.72];
   function setRS(v){if(G.rs===v)return;PERF.tag('res-change');G.rs=v;resize()}
   function frameTime(ms){if(G.GFX.lockQ||!(ms>0)||ms>200)return;ema+=(ms-ema)*0.05;if(ema>21){if(++slow>60){slow=0;ema=16.7;const i=RS.indexOf(G.rs);if(i<RS.length-1)setRS(RS[i+1]);else if(Q>0){Q--;PERF.tag('quality-down');apply()}}}else slow=Math.max(0,slow-2)}
-  G.use({levelStart(){slow=0;ema=16.7;try{const L=G.L;if(L&&(!G.groundCv||G.groundFor!==L||G.groundHF!==FEATURES.hiFiGraphics))buildGround(L);prewarm(250)}catch(e){}if(G.GFX.lockQ)return;const i=RS.indexOf(G.rs);if(i>0)setRS(RS[i-1])}});
+  G.use({levelStart(){slow=0;ema=16.7;try{const L=G.L;if(L&&(!G.groundCv||G.groundFor!==L||G.groundHF!==FEATURES.hiFiGraphics))buildGround(L);prewarm(900)}catch(e){}if(G.GFX.lockQ)return;const i=RS.indexOf(G.rs);if(i>0)setRS(RS[i-1])}});
   function apply(){OPT.cast=OPT.clouds=OPT.water=OPT.grass=OPT.tw=Q>=2?1:0;OPT.sprites=Q>=1?1:0}
   return{light,rim,sprite,pumpQ,prewarm,bdFor:L=>{const keep=LV;LV=null;try{return level(L).bd}finally{LV=keep}},frameTime,get quality(){return Q},set quality(v){Q=v;apply()},STAT,OPT,depth,obj,head,headShadow,grade,post,backdrop,groundFx,overlay,cacheSize:()=>CACHE.size,clear:()=>CACHE.clear()}})();
 G.GFX=GFX;
@@ -2710,7 +2724,7 @@ function frame(now){const iv=now-last,w0=performance.now();if(PERF.on&&G.state==
   if(G.state==='play')update(dt);if(G.state==='play'||G.state==='end'||G.state==='pause')render();
   // HUD DOM: write only when the value changes; progress bar animates with transform (compositor) instead of width (layout every frame for 0.2s after each swallow)
   const sc=G.score||0;if(sc!==HUDV.s){HUDV.s=sc;HUDV.se.textContent=sc}const pr=G.L?Math.round(G.progress()*1000)/1000:0;if(pr!==HUDV.p){HUDV.p=pr;HUDV.be.style.transform='scaleX('+pr+')'}
-  if(G.state==='play'&&G.GFX){const wk=performance.now()-w0;if(FRAMEQ.length&&wk<5){PERF.tag('queued-text-build');FRAMEQ.shift()()}else G.GFX.pumpQ(wk);GTILES.slice(performance.now()-w0)}if(PERF.on)PERF.lw=performance.now()-w0;requestAnimationFrame(frame)}
+  if(G.state==='play'&&G.GFX){const wk=performance.now()-w0;if(FRAMEQ.length&&wk<5){PERF.tag('queued-text-build');FRAMEQ.shift()()}else{const sp=G.GFX.pumpQ(wk);GTILES.slice(sp?99:performance.now()-w0)}}if(PERF.on)PERF.lw=performance.now()-w0;requestAnimationFrame(frame)}
 const HUDV={s:null,p:null,se:$('hScore'),be:$('barFill')};
 G.step=(sec)=>{for(let t=0;t<sec&&G.state==='play';t+=1/60)update(1/60);render()}; // test helper
 G.stepNoRender=(dt)=>update(dt); // test helper
