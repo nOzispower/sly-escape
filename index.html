@@ -107,7 +107,7 @@ const SPEED={headSpeed:0.52,chaserSpeed:1,levelTime:1.6};
  the database's row-level security + the submit_score function (backend/supabase.sql) are what protect the data.
  Leave url empty to use the built-in local mock (scores only stored on this device), e.g. for tests and offline builds. */
 // freeTextNick: true = players type a nickname (rude-word filtered); false = kid-safe mode, only generated names like "SwiftOtter42" (🎲 button).
-const SCOREBOARD={url:'',anonKey:'',topN:10,listN:50,timeoutMs:8000,nickMin:3,nickMax:14,freeTextNick:true};
+const SCOREBOARD={url:'https://zyqiemevuvhbirtsbbjf.supabase.co',anonKey:'sb_publishable_DW1cHpXy4yRZafXE3C8brA_-eMmaLv5',topN:10,listN:50,timeoutMs:8000,nickMin:3,nickMax:14,freeTextNick:true};
 const PLAYER_SPEED=SPEED.headSpeed;
 /* LEVEL_TIME_SCALE: level time limits are multiplied by this to balance slower movement. */
 const LEVEL_TIME_SCALE=SPEED.levelTime;
@@ -3572,8 +3572,8 @@ if(FEATURES.leaderboard){
   // --- backends: same 3 calls, all return promises ---
   const supabase={name:'supabase',
     async rpc(fn,body){const ac=new AbortController(),t=setTimeout(()=>ac.abort(),CFG.timeoutMs);
-      try{const r=await fetch(CFG.url.replace(/\/$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',signal:ac.signal,headers:{apikey:CFG.anonKey,Authorization:'Bearer '+CFG.anonKey,'Content-Type':'application/json'},body:JSON.stringify(body)});
-        const j=await r.json().catch(()=>null);if(!r.ok){const e=new Error((j&&j.message)||('HTTP '+r.status));e.permanent=r.status>=400&&r.status<500&&r.status!==408&&r.status!==429;throw e}return j}finally{clearTimeout(t)}},
+      try{const r=await fetch(CFG.url.replace(/\/$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',signal:ac.signal,headers:CFG.anonKey.startsWith('eyJ')?{apikey:CFG.anonKey,Authorization:'Bearer '+CFG.anonKey,'Content-Type':'application/json'}:{apikey:CFG.anonKey,'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const j=await r.json().catch(()=>null);if(!r.ok){const e=new Error((j&&j.message)||('HTTP '+r.status));e.permanent=r.status>=400&&r.status<500&&r.status!==408&&r.status!==429&&!/too fast/.test(e.message);throw e}return j}finally{clearTimeout(t)}},
     submit(e){return this.rpc('submit_score',{p_map:e.map,p_player:e.pid,p_nick:e.nick,p_score:e.score,p_head:e.head,p_ver:e.ver})},
     getTop(map,n,pid){return this.rpc('get_top',{p_map:map,p_n:n,p_player:pid})},
     async getMyRank(map,pid){const r=await this.rpc('my_rank',{p_map:map,p_player:pid});return(Array.isArray(r)?r[0]:r)||null}};
@@ -3587,7 +3587,7 @@ if(FEATURES.leaderboard){
     seed(map,rows){const d=this.db(),m=d[map]=d[map]||{};rows.forEach((r,i)=>{m['seed-'+i]={nick:r[0],score:r[1],head:r[2]||'default',at:i}});this.put(d)},clear(){try{localStorage.removeItem(MK)}catch(e){}}};
   let busy=false,retryT=0,backoff=15000;
   const SS=window.SlyScores={config:CFG,mock,supabase,nickCheck,randNick,mapKey,maps,
-    get backend(){return CFG.url&&CFG.anonKey?supabase:mock},
+    get backend(){return CFG.url&&CFG.anonKey&&!/[?&]lbmock=1\b/.test(location.search)?supabase:mock},
     get nick(){return(G.save.lb||{}).nick||''},setNick(n){const c=nickCheck(n);if(!c.ok)return c;const l=st();if(l.nick!==c.nick){l.nick=c.nick;for(const e of l.q)e.nick=c.nick;
       for(const m in l.best)if(!l.q.some(e=>e.map===m))l.q.push({map:m,score:l.best[m],nick:c.nick,head:G.save.head||'default',pid:l.pid,ver:ver()}) // re-send bests so the new name shows
       G.persist();this.flush()}return c},

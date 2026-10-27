@@ -3,7 +3,7 @@
 const pp=require('puppeteer-core'),path=require('path');const SHOTS=process.argv[2];
 (async()=>{const b=await pp.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});const p=await b.newPage();const errs=[];p.on('pageerror',e=>errs.push(e.message));
 await p.setViewport({width:360,height:740,deviceScaleFactor:3,isMobile:true,hasTouch:true});
-await p.goto('file://'+path.resolve(__dirname,'../index.html'));await p.evaluate(()=>{localStorage.clear()});await p.reload();
+await p.goto('file://'+path.resolve(__dirname,'../index.html')+'?lbmock=1');await p.evaluate(()=>{localStorage.clear()});await p.reload();
 const fail=[];const ok=(c,m)=>{if(!c)fail.push(m)};const shot=async n=>{if(SHOTS)await p.screenshot({path:SHOTS+'/'+n+'.png'})};const wait=ms=>new Promise(r=>setTimeout(r,ms));
 // 1. nickname filter
 const nk=await p.evaluate(()=>{const c=SlyScores.nickCheck;return[c('Sly Fox 7').ok,c('ab').ok,c('f4ck3r').ok,c('FUCK').ok,c('<script>').ok,c('x'.repeat(15)).ok,c('Cassie').ok,c('Hello Kitty').ok,c('S h i t').ok]});
@@ -55,5 +55,5 @@ await p.goto('file://'+path.resolve(__dirname,'../index.html'));
 const r=await p.evaluate(async()=>{localStorage.clear();SlyScores.config.url='https://demo.supabase.co';SlyScores.config.anonKey='anon-key';SlyScores.setNick('Tester');SlyScores.submit('ocean',3500);await new Promise(r=>setTimeout(r,300));
   return {top:await SlyScores.getTop('ocean'),me:await SlyScores.getMyRank('ocean'),q:SlyScores.pending('ocean'),be:SlyScores.backend.name}});
 const sub=seen.find(s=>s.u.endsWith('/rest/v1/rpc/submit_score'));const body=sub&&JSON.parse(sub.b);
-const good=r.be==='supabase'&&!r.q&&r.top[0].is_me&&r.me.rank===1&&sub&&sub.h.apikey==='anon-key'&&sub.h.authorization==='Bearer anon-key'&&body.p_map==='ocean'&&body.p_score===3500&&body.p_nick==='Tester'&&/^[0-9a-f-]{36}$/.test(body.p_player)&&seen.some(s=>s.u.endsWith('/rpc/get_top'))&&seen.some(s=>s.u.endsWith('/rpc/my_rank'));
+const good=r.be==='supabase'&&!r.q&&r.top[0].is_me&&r.me.rank===1&&sub&&sub.h.apikey==='anon-key'&&!sub.h.authorization&&body.p_map==='ocean'&&body.p_score===3500&&body.p_nick==='Tester'&&/^[0-9a-f-]{36}$/.test(body.p_player)&&seen.some(s=>s.u.endsWith('/rpc/get_top'))&&seen.some(s=>s.u.endsWith('/rpc/my_rank'));
 console.log(good?'LB SUPABASE-ADAPTER PASS':'LB SUPABASE-ADAPTER FAIL '+JSON.stringify({r,body,n:seen.length}));await b.close();if(!good)process.exitCode=1})();
