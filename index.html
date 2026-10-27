@@ -101,6 +101,13 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
               (CHASER ratio, kept from the original balance), so changing headSpeed slows/speeds chasers with it.
  levelTime:   multiplies every level's time limit (1.45 in builds 1-6; 1.6 keeps about the same spare time at the slower head). */
 const SPEED={headSpeed:0.52,chaserSpeed:1,levelTime:1.6};
+/* ===================== SCOREBOARD: global online leaderboard config =====================
+ One shared list per map (score of the map's LAST level) for Android, iPhone and web.
+ url + anonKey: from the Supabase project (Settings > API: Project URL + anon/publishable key). The anon key is public by design;
+ the database's row-level security + the submit_score function (backend/supabase.sql) are what protect the data.
+ Leave url empty to use the built-in local mock (scores only stored on this device), e.g. for tests and offline builds. */
+// freeTextNick: true = players type a nickname (rude-word filtered); false = kid-safe mode, only generated names like "SwiftOtter42" (🎲 button).
+const SCOREBOARD={url:'',anonKey:'',topN:10,listN:50,timeoutMs:8000,nickMin:3,nickMax:14,freeTextNick:true};
 const PLAYER_SPEED=SPEED.headSpeed;
 /* LEVEL_TIME_SCALE: level time limits are multiplied by this to balance slower movement. */
 const LEVEL_TIME_SCALE=SPEED.levelTime;
@@ -134,7 +141,7 @@ const FEATURES={
   settings:true,     // Settings screen: sound/music, restore purchases, privacy/support, version
   coinShop:true,     // Store 'Coins' tab: real-money coin packs via IAP (TEST stub until a native billing plugin is attached)
   loadout:true,      // 'Get Ready' screen before a level: pick head + chaser
-  leaderboard:false, // local stub for best scores (swap in a server later)
+  leaderboard:true, // global scoreboard for each map's last level (config: SCOREBOARD near the top)
 };
 // hidden dev switch for testing: ?dev=1 unlocks everything (tester mode, real save untouched); ?dev=0 or no param = normal
 if(!BUILD.release&&/[?&]dev=1\b/.test(location.search))FEATURES.unlockAll=true;
@@ -3543,12 +3550,122 @@ if(FEATURES.buyTime&&FEATURES.timer&&FEATURES.coins){const P=PRICES.buyTime,S=G.
   G.use({levelStart(G){used=0;bought=0;boostSecs=0;close();cd.classList.remove('on');G.graceUntil=0;
       if(pendingBoost){pendingBoost=false;boostSecs=P.boostSecs;G.timeLeft+=P.boostSecs;setTimeout(()=>{if(G.state==='play')G.timePop('+'+P.boostSecs+'s')},350)}},
     levelEnd(G,r){close();if(used&&r.win)r.msg=(r.msg||'')+' · ⏱ continue used (max ★★)'}})}
-// --- LEADERBOARD (local stub; replace save/load with server calls later) ---
-if(FEATURES.leaderboard){const KEY='slyescape.lb';
-  G.leaderboard={load:()=>JSON.parse(localStorage.getItem(KEY)||'[]'),submit(name,score,level){const l=this.load();l.push({name,score,level,at:Date.now()});l.sort((a,b)=>b.score-a.score);localStorage.setItem(KEY,JSON.stringify(l.slice(0,20)))}};
-  G.use({levelEnd(G,r){if(r.win)G.leaderboard.submit('You',r.score,r.level+1)},
-    init(G){const b=document.createElement('button');b.className='btn alt';b.textContent='Top Scores';$('menuExtra').appendChild(b);
-      b.onclick=()=>alert(G.leaderboard.load().slice(0,10).map((e,i)=>(i+1)+'. '+e.name+' L'+e.level+' — '+e.score).join('\n')||'No scores yet')}})}
+// --- GLOBAL SCOREBOARD (one list per map, scored on the map's last level) ---
+// window.SlyScores is the only thing the game talks to; the backend behind it is swappable (supabase | mock).
+// Network work only happens on level end, on screens and on retry timers - never inside the frame loop.
+if(FEATURES.leaderboard){
+  const CFG=SCOREBOARD,BAD=['fuck','fck','fuk','phuk','fack','shit','bitch','cunt','dick','cock','pussy','penis','vagina','porn','nazi','hitler','rape','slut','whore','fag','nigg','retard','wank','twat','bastard','piss'],
+    BADW=['sex','kill','die','damn','hell','crap','ass','butt','poop','pee','boob','tit','tits','suck','hate','kkk','stupid','idiot','dumb','loser','666','69','gay','fat','ugly'];
+  const LEET={'0':'o','1':'i','3':'e','4':'a','5':'s','7':'t','8':'b','9':'g','@':'a','$':'s','!':'i','|':'i'};
+  const norm=t=>String(t).toLowerCase().split('').map(c=>LEET[c]||c).join('').replace(/[^a-z]/g,'');
+  const ADJ=['Sly','Swift','Sneaky','Happy','Hungry','Lucky','Brave','Fuzzy','Zippy','Jolly','Clever','Sunny','Speedy','Bouncy','Cosmic'],ANI=['Fox','Cat','Owl','Otter','Panda','Tiger','Bunny','Gecko','Koala','Puffin','Llama','Badger','Penguin','Dragon','Moose'];
+  const nickCheck=n=>{n=String(n||'').replace(/\s+/g,' ').trim();if(n.length<CFG.nickMin)return{ok:false,msg:'Use at least '+CFG.nickMin+' letters.'};if(n.length>CFG.nickMax)return{ok:false,msg:'Use '+CFG.nickMax+' letters or fewer.'};
+    if(!/^[A-Za-z0-9 _-]+$/.test(n))return{ok:false,msg:'Letters, numbers, spaces, - and _ only.'};const z=norm(n),zz=z.replace(/(.)\1+/g,'$1');
+    const bad={ok:false,msg:'Please pick a friendlier name.'},tok=n.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);for(const w of BAD)if(z.includes(w)||zz.includes(w))return bad;
+    for(const t of tok){if(BADW.includes(t)||BADW.includes(norm(t)))return bad}if(BADW.includes(z))return bad;return{ok:true,nick:n}};
+  const randNick=()=>ADJ[Math.random()*ADJ.length|0]+ANI[Math.random()*ANI.length|0]+(10+Math.random()*90|0);
+  // which map a level belongs to (only the last level of each map counts)
+  const mapKey=li=>{const L=LEVELS[li];if(!L||li%10!==9)return null;return L.map||('farm'+(Math.floor(li/10)+1))};
+  const maps=()=>{const out=[];for(let i=9;i<LEVELS.length;i+=10){const L=LEVELS[i];out.push({id:mapKey(i),li:i,name:L.mapDef?L.mapDef.name:L.theme,icon:L.mapDef?L.mapDef.icon:'🌾'})}return out};
+  const st=()=>{const S=G.save;const l=S.lb=S.lb||{};if(!l.pid)l.pid=(crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&3|8)).toString(16)}));l.q=l.q||[];l.best=l.best||{};return l};
+  const ver=()=>BUILD.version+'('+BUILD.build+')';
+  // --- backends: same 3 calls, all return promises ---
+  const supabase={name:'supabase',
+    async rpc(fn,body){const ac=new AbortController(),t=setTimeout(()=>ac.abort(),CFG.timeoutMs);
+      try{const r=await fetch(CFG.url.replace(/\/$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',signal:ac.signal,headers:{apikey:CFG.anonKey,Authorization:'Bearer '+CFG.anonKey,'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const j=await r.json().catch(()=>null);if(!r.ok){const e=new Error((j&&j.message)||('HTTP '+r.status));e.permanent=r.status>=400&&r.status<500&&r.status!==408&&r.status!==429;throw e}return j}finally{clearTimeout(t)}},
+    submit(e){return this.rpc('submit_score',{p_map:e.map,p_player:e.pid,p_nick:e.nick,p_score:e.score,p_head:e.head,p_ver:e.ver})},
+    getTop(map,n,pid){return this.rpc('get_top',{p_map:map,p_n:n,p_player:pid})},
+    async getMyRank(map,pid){const r=await this.rpc('my_rank',{p_map:map,p_player:pid});return(Array.isArray(r)?r[0]:r)||null}};
+  const MK='slyescape.lbmock';
+  const mock={name:'mock',db(){try{return JSON.parse(localStorage.getItem(MK)||'{}')}catch(e){return{}}},put(d){try{localStorage.setItem(MK,JSON.stringify(d))}catch(e){}},offline:false,
+    async submit(e){if(this.offline)throw new Error('offline');if(!(e.score>0))throw Object.assign(new Error('bad score'),{permanent:true});const d=this.db(),m=d[e.map]=d[e.map]||{},o=m[e.pid];
+      m[e.pid]={nick:e.nick,score:Math.max(e.score,o?o.score:0),head:e.head,at:o&&o.score>=e.score?o.at:Date.now()};this.put(d);return true},
+    list(map){const m=this.db()[map]||{};return Object.entries(m).map(([pid,v])=>Object.assign({pid},v)).sort((a,b)=>b.score-a.score||a.at-b.at)},
+    async getTop(map,n,pid){if(this.offline)throw new Error('offline');return this.list(map).slice(0,n).map((v,i)=>({rank:i+1,nickname:v.nick,score:v.score,head_id:v.head,is_me:v.pid===pid}))},
+    async getMyRank(map,pid){if(this.offline)throw new Error('offline');const l=this.list(map),i=l.findIndex(v=>v.pid===pid);return i<0?null:{rank:i+1,score:l[i].score,total:l.length}},
+    seed(map,rows){const d=this.db(),m=d[map]=d[map]||{};rows.forEach((r,i)=>{m['seed-'+i]={nick:r[0],score:r[1],head:r[2]||'default',at:i}});this.put(d)},clear(){try{localStorage.removeItem(MK)}catch(e){}}};
+  let busy=false,retryT=0,backoff=15000;
+  const SS=window.SlyScores={config:CFG,mock,supabase,nickCheck,randNick,mapKey,maps,
+    get backend(){return CFG.url&&CFG.anonKey?supabase:mock},
+    get nick(){return(G.save.lb||{}).nick||''},setNick(n){const c=nickCheck(n);if(!c.ok)return c;const l=st();if(l.nick!==c.nick){l.nick=c.nick;for(const e of l.q)e.nick=c.nick;
+      for(const m in l.best)if(!l.q.some(e=>e.map===m))l.q.push({map:m,score:l.best[m],nick:c.nick,head:G.save.head||'default',pid:l.pid,ver:ver()}) // re-send bests so the new name shows
+      G.persist();this.flush()}return c},
+    // queue a score (kept offline until it uploads; only the best per map is kept)
+    submit(map,score){const l=st();if(!map||!(score>0))return false;if(score<=(l.best[map]||0)&&!l.q.some(e=>e.map===map))return false;l.best[map]=Math.max(l.best[map]||0,score);
+      const e={map,score:l.best[map],nick:l.nick,head:G.save.head||'default',pid:l.pid,ver:ver()},i=l.q.findIndex(x=>x.map===map);if(i>=0)l.q[i]=e;else l.q.push(e);G.persist();return this.flush()},
+    pending(map){const l=st();return l.q.some(e=>e.map===map)},
+    async flush(){const l=st();if(busy||!l.nick||!l.q.length)return false;if(navigator.onLine===false){this.retry();return false}busy=true;let ok=true;
+      try{for(const e of l.q.slice()){if(!e.nick)e.nick=l.nick;try{await this.backend.submit(e);l.q.splice(l.q.indexOf(e),1)}catch(err){if(err.permanent){l.q.splice(l.q.indexOf(e),1)}else{ok=false;break}}}}finally{busy=false;G.persist()}
+      if(ok){backoff=15000}else this.retry();return ok},
+    retry(){if(retryT)return;retryT=setTimeout(()=>{retryT=0;backoff=Math.min(backoff*2,600000);this.flush()},backoff)},
+    getTop(map,n){return this.backend.getTop(map,n||CFG.topN,st().pid)},
+    getMyRank(map){return this.backend.getMyRank(map,st().pid)}};
+  window.addEventListener('online',()=>SS.flush());document.addEventListener('resume',()=>SS.flush());document.addEventListener('visibilitychange',()=>{if(!document.hidden)SS.flush()});
+  // --- UI ---
+  const css=document.createElement('style');css.textContent=`
+#sLB{justify-content:flex-start;padding:calc(env(safe-area-inset-top) + 18px) 12px 18px;gap:10px}
+#lbMaps{display:flex;gap:8px;overflow-x:auto;width:100%;max-width:420px;padding:4px 2px 8px;flex-shrink:0;scrollbar-width:none}#lbMaps::-webkit-scrollbar{display:none}
+#lbMaps button{flex-shrink:0;border:2px solid #ffffff40;background:#ffffff1c;color:#fff;border-radius:14px;padding:7px 11px;font:900 14px system-ui;white-space:nowrap}
+#lbMaps button.on{background:linear-gradient(#ffcf33,#ff8a00);border-color:#fff3;box-shadow:0 3px 0 #b85a00}
+.lbList{width:100%;max-width:400px;display:flex;flex-direction:column;gap:5px;overflow-y:auto;min-height:0}
+#sLB .lbList{flex:1}
+.lbRow{display:flex;align-items:center;gap:8px;background:#ffffff1c;border:2px solid #ffffff26;border-radius:13px;padding:4px 10px;font:900 16px system-ui;flex-shrink:0}
+.lbRow.me{background:linear-gradient(#ffe36b55,#ff9a0055);border-color:#ffd23f}
+.lbRow .rk{width:30px;text-align:right;opacity:.9}.lbRow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}.lbRow .sc{font-variant-numeric:tabular-nums}
+.lbRow canvas{position:static;width:30px;height:30px;flex-shrink:0;display:block}
+.lbMsg{font:800 15px system-ui;opacity:.85;text-align:center;padding:8px}
+.lbMe{font:900 16px system-ui;text-align:center;flex-shrink:0}
+#lbEnd{width:100%;max-width:380px;display:flex;flex-direction:column;gap:5px;align-items:stretch}
+#lbEnd .lbRow{font-size:14px;padding:2px 8px;border-radius:10px}#lbEnd .lbRow canvas{width:24px;height:24px}#lbEnd h3{margin:2px 0;font:900 18px system-ui;text-align:center}
+#sEnd{overflow-y:auto;justify-content:flex-start;padding-top:calc(env(safe-area-inset-top) + 24px)}
+#lbNick{position:fixed;inset:0;z-index:9000;background:#0009;display:flex;align-items:center;justify-content:center;padding:16px}
+#lbNick .bx{background:linear-gradient(#5a2bb8,#2a0f6b);border:3px solid #ffffff40;border-radius:22px;padding:18px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:10px;color:#fff;text-align:center}
+#lbNick input{font:900 20px system-ui;padding:10px 12px;border-radius:12px;border:2px solid #fff6;background:#fff;color:#2a0f6b;text-align:center;width:100%;box-sizing:border-box}
+#lbNick .er{min-height:18px;font:800 14px system-ui;color:#ffd0d0}#lbNick .rw{display:flex;gap:8px;justify-content:center}#lbNick .btn{padding:10px 12px;font-size:17px;min-width:0;flex:1}#lbNick #lbNickNo{flex:none}`;
+  document.head.appendChild(css);
+  const esc=t=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const headIcon=(id,px)=>{const c=document.createElement('canvas'),d=Math.min(3,devicePixelRatio||1);c.width=c.height=Math.round(px*d);const x=c.getContext('2d');x.scale(d,d);
+    try{previewHead(x,px/2,px*0.64,px*0.34,HEADS[id]||HEADS.default,0.3,{},null)}catch(e){}return c};
+  const rowsInto=(el,rows,px)=>{el.textContent='';for(const r of rows){const d=document.createElement('div');d.className='lbRow'+(r.is_me?' me':'');
+    d.innerHTML='<span class="rk">'+r.rank+'</span><span class="ic"></span><span class="nm">'+esc(r.nickname)+(r.is_me?' (you)':'')+'</span><span class="sc">'+Number(r.score).toLocaleString()+'</span>';
+    d.querySelector('.ic').replaceWith(headIcon(r.head_id,px));el.appendChild(d)}};
+  const meLine=r=>r?'Your rank: #'+r.rank+' of '+r.total+' · best '+Number(r.score).toLocaleString():'';
+  // nickname dialog (first submit + Settings)
+  const askNick=(title,cb)=>{const o=document.createElement('div');o.id='lbNick';
+    o.innerHTML='<div class="bx"><div style="font:900 21px system-ui">'+esc(title)+'</div><div class="dim" style="font-size:14px">Shown on the world scoreboard. Don\'t use your real name.</div><input id="lbNickIn" maxlength="'+CFG.nickMax+'" autocomplete="off" autocapitalize="words" spellcheck="false"><div class="er" id="lbNickEr"></div>'+
+      '<div class="rw"><button class="btn alt" id="lbNickRnd">🎲 Random</button><button class="btn" id="lbNickOk">Save</button></div><button class="btn alt" id="lbNickNo" style="font-size:15px;padding:8px 14px">Not now</button></div>';
+    document.body.appendChild(o);const inp=o.querySelector('#lbNickIn');inp.value=SS.nick||randNick();if(!CFG.freeTextNick){inp.readOnly=true;inp.style.background='#eee'}
+    const done=v=>{o.remove();cb&&cb(v)};o.querySelector('#lbNickRnd').onclick=()=>{inp.value=randNick();o.querySelector('#lbNickEr').textContent=''};
+    o.querySelector('#lbNickNo').onclick=()=>done(null);o.querySelector('#lbNickOk').onclick=()=>{const c=SS.setNick(inp.value);if(!c.ok){o.querySelector('#lbNickEr').textContent=c.msg;return}done(c.nick)};
+    inp.onkeydown=e=>{if(e.key==='Enter')o.querySelector('#lbNickOk').click()}};
+  SS.askNick=askNick;
+  // end of a map's last level: submit + show top 10 and own rank
+  const showEnd=async map=>{const box=$('endExtra');box.innerHTML='<div id="lbEnd"><h3>🏆 '+esc((maps().find(m=>m.id===map)||{}).name||'')+' scoreboard</h3><div class="lbList" id="lbEndList"><div class="lbMsg">Loading…</div></div><div class="lbMe" id="lbEndMe"></div></div>';
+    const li=$('lbEndList'),me=$('lbEndMe');
+    if(!SS.nick){li.innerHTML='<div class="lbMsg">Pick a nickname to join the world scoreboard!</div>';const b=document.createElement('button');b.className='btn';b.textContent='🏷️ Join scoreboard';b.style.cssText='font-size:17px;padding:10px 16px;align-self:center';
+      b.onclick=()=>askNick('Pick a nickname',n=>{if(n)showEnd(map)});li.appendChild(b);return}
+    await SS.flush().catch(()=>{});
+    try{const [top,r]=await Promise.all([SS.getTop(map,CFG.topN),SS.getMyRank(map)]);if(!$('lbEndList'))return;rowsInto(li,top,24);if(!top.length)li.innerHTML='<div class="lbMsg">No scores yet - you could be first!</div>';
+      me.textContent=r?meLine(r):SS.pending(map)?'Your score will upload when you\'re online.':''}
+    catch(e){li.innerHTML='<div class="lbMsg">Scoreboard offline - your best ('+Number(st().best[map]||0).toLocaleString()+') will upload later.</div>';me.textContent=''}};
+  // leaderboards screen
+  const scr=document.createElement('div');scr.className='scr';scr.id='sLB';
+  scr.innerHTML='<h2 style="margin:0">🏆 Leaderboards</h2><div class="dim" style="font-size:14px;margin-top:-6px">Best score on each map\'s last level</div><div id="lbMaps"></div><div class="lbList" id="lbList"></div><div class="lbMe" id="lbMeLine"></div><button class="btn alt" id="lbBack" style="flex-shrink:0">Back</button>';
+  document.body.appendChild(scr);let cur=null,seq=0;
+  const pick=async id=>{cur=id;for(const b of $('lbMaps').children)b.classList.toggle('on',b.dataset.id===id);const my=++seq,li=$('lbList');li.innerHTML='<div class="lbMsg">Loading…</div>';$('lbMeLine').textContent='';
+    try{const [top,r]=await Promise.all([SS.getTop(id,CFG.listN),SS.getMyRank(id)]);if(my!==seq)return;rowsInto(li,top,30);if(!top.length)li.innerHTML='<div class="lbMsg">No scores yet. Clear the last level of this map to be first!</div>';
+      $('lbMeLine').textContent=r?meLine(r):SS.nick?'':'Clear a map\'s last level to join.'}catch(e){if(my===seq)li.innerHTML='<div class="lbMsg">Can\'t reach the scoreboard right now. Check your connection.</div>'}};
+  SS.open=id=>{const mb=$('lbMaps');if(!mb.children.length)for(const m of maps()){const b=document.createElement('button');b.dataset.id=m.id;b.textContent=m.icon+' '+m.name;b.onclick=()=>pick(m.id);mb.appendChild(b)}
+    G.show('sLB');const sel=id0(id);pick(sel);const b=[...mb.children].find(x=>x.dataset.id===sel);if(b)b.scrollIntoView({inline:'center',block:'nearest'});SS.flush()};
+  const id0=id=>id||cur||mapKey(((G.li??9)|0)-((G.li??9)|0)%10+9)||'farm1';
+  $('lbBack').onclick=()=>G.show('sMenu');
+  G.use({levelStart(){const b=$('endExtra');if(b)b.textContent=''},
+    levelEnd(G,r){const b=$('endExtra');if(b)b.textContent='';if(!r.win)return;const map=mapKey(r.level);if(!map)return;SS.submit(map,r.score);setTimeout(()=>showEnd(map),0)},
+    init(G){const b=document.createElement('button');b.className='btn alt';b.id='bLB';b.textContent='🏆 Leaderboards';$('menuExtra').appendChild(b);b.onclick=()=>{G.hook('userGesture');SS.open()};
+      const v=$('setVer');if(v){const n=document.createElement('button');n.className='btn alt';n.id='setNick';const lab=()=>{n.textContent='🏷️ Nickname: '+(SS.nick||'not set')};lab();
+        n.onclick=()=>askNick(SS.nick?'Change nickname':'Pick a nickname',()=>lab());v.before(n);G.use({levelEnd(){lab()}})}
+      setTimeout(()=>SS.flush(),3000)}})}
 // title art: the free Black Cat head chomping a chick
 {const tc=$('titleArt'),tx=tc.getContext('2d'),st={ang:0.4,chomp:0,chew:0};(function anim(){if($('sMenu').classList.contains('on')){const t=performance.now()/1000,k=(t*0.8)%1;tx.setTransform(2,0,0,2,0,0);tx.clearRect(0,0,220,150);
   previewHead(tx,110,104,34,HEADS.default,t,st,'🐔')}requestAnimationFrame(anim)})()}
