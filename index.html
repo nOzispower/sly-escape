@@ -54,6 +54,11 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 .grid .lv{height:66px;font-size:22px;border-radius:14px}.grid .lv small{font-size:10px;bottom:4px}
 .grid .lv.bonus{background:linear-gradient(#ffcf33,#ff8a00);box-shadow:0 5px 0 #b35500}
 .wnav{display:flex;align-items:center;gap:10px}.wnav .ic{background:#fff3}
+/* map preview card on the Levels screen: shrinks with screen height (hidden when too short) so the grid + Back always fit */
+#mapPrev{position:relative;flex-shrink:0;height:clamp(0px,calc(100svh - 540px),190px);aspect-ratio:1.6;max-width:86vw;border-radius:18px;overflow:hidden;border:3px solid #fff8;box-shadow:0 8px 22px #0007,0 2px 0 #fff3 inset;background:#ffffff14;margin-bottom:-4px}
+@media (max-height:600px){#mapPrev{display:none}}#mapPrev canvas{position:absolute!important;inset:0;width:100%!important;height:100%!important;border:0!important;border-radius:0!important;display:block}
+#mapPrev .lk{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:#1a0a3a99;font:900 clamp(15px,4.6vw,20px) system-ui;color:#fff;text-shadow:0 2px 4px #000a}
+#mapPrev .lk b{font-size:clamp(26px,9vw,40px);line-height:1}#mapPrev .lk span{color:#ffe14d}
 #wTitle{min-width:190px;font-size:20px;font-weight:900}#wStars{font-size:15px;color:#ffe14d}
 .dots{display:flex;gap:5px}.dots i{width:8px;height:8px;border-radius:50%;background:#fff4}.dots i.on{background:#ffe14d}
 .lv{height:86px;border-radius:18px;border:0;font-size:28px;font-weight:900;color:#fff;background:linear-gradient(#5dff9a,#14b35c);box-shadow:0 5px 0 #0a6b37;position:relative}
@@ -87,7 +92,7 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 <div id="tools"></div>
 <div class="scr on" id="sMenu"><div id="testBadge" style="display:none;position:absolute;top:12px;left:12px;background:#ff3b6b;color:#fff;font:800 12px system-ui;padding:4px 9px;border-radius:9px;letter-spacing:1px;z-index:5">TEST MODE</div><canvas id="titleArt" width="440" height="300" style="position:static;width:220px;height:150px;margin-bottom:-14px"></canvas><h1>SLY<br>ESCAPE</h1><div class="dim">Drag to steer your hungry head. Gobble the farm, grow bigger!</div>
  <button class="btn" id="bPlay">PLAY</button><div id="menuExtra" style="display:flex;flex-direction:column;gap:12px;align-items:center"></div></div>
-<div class="scr" id="sSelect"><h2>Levels</h2><div class="wnav"><button class="ic" id="wPrev">‹</button><div><div id="wTitle"></div><div id="wStars"></div></div><button class="ic" id="wNext">›</button></div>
+<div class="scr" id="sSelect"><div id="mapPrev"></div><h2>Levels</h2><div class="wnav"><button class="ic" id="wPrev">‹</button><div><div id="wTitle"></div><div id="wStars"></div></div><button class="ic" id="wNext">›</button></div>
  <div class="grid" id="lvGrid"></div><div class="dots" id="wDots"></div><button class="btn alt" id="bBack">Back</button></div>
 <div class="scr" id="sEnd"><h2 id="eTitle"></h2><div class="stars" id="eStars"></div><div id="eMsg" class="dim"></div><div id="endExtra"></div>
  <button class="btn" id="bNext">Next</button><button class="btn alt" id="bRetry">Retry</button><button class="btn alt" id="bMenu">Menu</button></div>
@@ -2749,14 +2754,16 @@ $('bPlay').onclick=()=>{G.hook('userGesture');FEATURES.levelSelect?(G.renderSele
 $('bBack').onclick=()=>G.show('sMenu');$('bMenu').onclick=()=>{G.state='menu';G.show('sMenu')};
 $('bRetry').onclick=()=>G.startLevel(G.li);$('bNext').onclick=()=>{const n=G.li+1;if(G.canPlay&&!G.canPlay(n)){G.renderSelect(Math.floor(n/10));G.show('sSelect');return}G.startLevel(n)};
 const PER_PAGE=10,FARM_PAGES=FARM_LEVELS/PER_PAGE,PAGES=FARM_PAGES+(FEATURES.store?MAPS.length:0);G.page=null;
+const PREV=new Map(); // one preview canvas per world/map (rendered once, off the frame loop by THUMB's queue)
 G.renderSelect=(p)=>{if(p==null)p=G.page??Math.floor((Math.min(G.save.unlocked,FARM_LEVELS)-1)/PER_PAGE);G.page=p=Math.max(0,Math.min(PAGES-1,p));
   const g=$('lvGrid');g.innerHTML='';let got=0;const m=p>=FARM_PAGES?MAPS[p-FARM_PAGES]:null,owned=m?!!(G.store&&G.store.owns('maps',m.id)):(!G.store||G.store.owns('worlds',p+1));
   const unl=FEATURES.unlockAll?(m?PER_PAGE:FARM_LEVELS):m?((G.save.mapUnlocked||{})[m.id]||1):G.save.unlocked;
-  if(!owned){const d=document.createElement('div');d.style.cssText='grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:10px';d.appendChild(m?G.mapThumb(m,240,150):G.worldThumb(p+1,240,150));
-    const b=document.createElement('button');b.className='btn';b.textContent='🔒 Unlock · 🪙 '+(G.store.price(m?'maps':'worlds',m?m.id:p+1)||0).toLocaleString('en-US');b.onclick=()=>G.store.open('maps');d.appendChild(b);g.appendChild(d)}
+  if(!owned){const d=document.createElement('div');d.style.cssText='grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:10px';    const b=document.createElement('button');b.className='btn';b.textContent='🔒 Unlock · 🪙 '+(G.store.price(m?'maps':'worlds',m?m.id:p+1)||0).toLocaleString('en-US');b.onclick=()=>G.store.open('maps');d.appendChild(b);g.appendChild(d)}
   else for(let i=p*PER_PAGE;i<Math.min(LEVELS.length,(p+1)*PER_PAGE);i++){const L=LEVELS[i],b=document.createElement('button');b.className='lv'+(L.bonus?' bonus':'');b.textContent=i%PER_PAGE+1+(m?0:p*PER_PAGE);
     b.disabled=(m?i%PER_PAGE:i)>=unl;const s=G.save.stars[i]||0;got+=s;if(FEATURES.stars&&!b.disabled)b.innerHTML+='<small>'+'★'.repeat(s)+'☆'.repeat(3-s)+'</small>';if(b.disabled)b.innerHTML='🔒';
     b.onclick=()=>G.playLevel(i);g.appendChild(b)}
+  {const pv=$('mapPrev');let c=PREV.get(p);if(!c){c=m?G.mapThumb(m,288,180):G.worldThumb(p+1,288,180);PREV.set(p,c)}pv.textContent='';pv.appendChild(c);
+    if(!owned){const k=document.createElement('div');k.className='lk';k.innerHTML='<b>🔒</b>'+(m?'Map':'World')+' locked<span>🪙 '+(G.store.price(m?'maps':'worlds',m?m.id:p+1)||0).toLocaleString('en-US')+'</span>';pv.appendChild(k)}}
   $('wTitle').textContent=m?(m.icon+' '+m.name):('World '+(p+1)+' · '+(LEVELS[p*PER_PAGE].theme||'Meadow'));$('wStars').textContent=!owned?(m?'Map':'World')+' · not owned':FEATURES.stars?'★ '+got+' / '+PER_PAGE*3:'';
   $('wPrev').disabled=p===0;$('wNext').disabled=p===PAGES-1;$('wDots').innerHTML=Array.from({length:PAGES},(_,k)=>'<i'+(k===p?' class="on"':'')+(k>=FARM_PAGES?' style="border-radius:2px"':'')+'></i>').join('')};
 if(FEATURES.unlockAll)$('testBadge').style.display='block';
@@ -2820,7 +2827,7 @@ const THUMB=(()=>{const CACHE=new Map(),DPR=()=>Math.min(3,devicePixelRatio||1),
     g=x.createRadialGradient(w/2,h/2,h*0.4,w/2,h/2,w*0.7);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(10,0,30,.35)');x.fillStyle=g;x.fillRect(0,0,w,h);x.strokeStyle='rgba(255,255,255,.35)';x.lineWidth=2;rr(x,1,1,w-2,h-2,10);x.stroke();return c}
   /* ---------- heads ---------- */
   const TIER=Object.fromEntries(Object.keys(HEADS).map(k=>[k,priceTier('heads',k)])); // frame glow = price tier (PRICES)
-  function worldMap(n){const L0=LEVELS[(n-1)*10+1];return{id:'farm'+n,icon:WORLD_ICON[n-1],name:L0.theme,ground:L0.ground,L0,types:[...new Set(L0.spawn.map(q=>q[0]))].map(k=>OBJECT_TYPES[k]).filter(Boolean),chaser:{id:'farmer'}}}
+  function worldMap(n){const L0=LEVELS[(n-1)*10+1];return{id:'farm'+n,icon:WORLD_ICON[n-1],name:L0.theme||LEVELS[(n-1)*10].theme||'Meadow',ground:L0.ground,L0,types:[...new Set(L0.spawn.map(q=>q[0]))].map(k=>OBJECT_TYPES[k]).filter(Boolean),chaser:{id:'farmer'}}}
   const TC=[['#5a7ad8','#2a3a8a','#9ab8ff'],['#2ab0e8','#0a4a8a','#7ae0ff'],['#b05af0','#4a1a8a','#e0a0ff'],['#ffb020','#8a4a0a','#ffe680']];
   function headCard(id,w,h){const d=DPR(),c=mk(w*d,h*d),x=c.getContext('2d');x.scale(d,d);const sk=HEADS[id]||HEADS.default,tc=TC[TIER[id]??1];
     let g=x.createRadialGradient(w/2,h*0.5,2,w/2,h*0.5,w*0.62);g.addColorStop(0,tc[0]);g.addColorStop(1,tc[1]);x.fillStyle=g;x.fillRect(0,0,w,h);
@@ -3605,7 +3612,7 @@ if(FEATURES.leaderboard){
   // --- UI ---
   const css=document.createElement('style');css.textContent=`
 #sLB{justify-content:flex-start;padding:calc(env(safe-area-inset-top) + 18px) 12px 18px;gap:10px}
-#lbMaps{display:flex;gap:8px;overflow-x:auto;width:100%;max-width:420px;padding:4px 2px 8px;flex-shrink:0;scrollbar-width:none}#lbMaps::-webkit-scrollbar{display:none}
+#lbMaps{position:relative;display:flex;gap:8px;overflow-x:auto;width:100%;max-width:420px;padding:4px 2px 8px;flex-shrink:0;scrollbar-width:none}#lbMaps::-webkit-scrollbar{display:none}
 #lbMaps button{flex-shrink:0;border:2px solid #ffffff40;background:#ffffff1c;color:#fff;border-radius:14px;padding:7px 11px;font:900 14px system-ui;white-space:nowrap}
 #lbMaps button.on{background:linear-gradient(#ffcf33,#ff8a00);border-color:#fff3;box-shadow:0 3px 0 #b85a00}
 .lbList{width:100%;max-width:400px;display:flex;flex-direction:column;gap:5px;overflow-y:auto;min-height:0}
@@ -3653,7 +3660,7 @@ if(FEATURES.leaderboard){
   const scr=document.createElement('div');scr.className='scr';scr.id='sLB';
   scr.innerHTML='<h2 style="margin:0">🏆 Leaderboards</h2><div class="dim" style="font-size:14px;margin-top:-6px">Best score on each map\'s last level</div><div id="lbMaps"></div><div class="lbList" id="lbList"></div><div class="lbMe" id="lbMeLine"></div><button class="btn alt" id="lbBack" style="flex-shrink:0">Back</button>';
   document.body.appendChild(scr);let cur=null,seq=0;
-  const pick=async id=>{cur=id;for(const b of $('lbMaps').children)b.classList.toggle('on',b.dataset.id===id);const my=++seq,li=$('lbList');li.innerHTML='<div class="lbMsg">Loading…</div>';$('lbMeLine').textContent='';
+  const pick=async id=>{cur=id;for(const b of $('lbMaps').children){const on=b.dataset.id===id;b.classList.toggle('on',on);if(on){const mb=$('lbMaps');mb.scrollLeft=Math.max(0,b.offsetLeft-(mb.clientWidth-b.offsetWidth)/2)}}const my=++seq,li=$('lbList');li.innerHTML='<div class="lbMsg">Loading…</div>';$('lbMeLine').textContent='';
     try{const [top,r]=await Promise.all([SS.getTop(id,CFG.listN),SS.getMyRank(id)]);if(my!==seq)return;rowsInto(li,top,30);if(!top.length)li.innerHTML='<div class="lbMsg">No scores yet. Clear the last level of this map to be first!</div>';
       $('lbMeLine').textContent=r?meLine(r):SS.nick?'':'Clear a map\'s last level to join.'}catch(e){if(my===seq)li.innerHTML='<div class="lbMsg">Can\'t reach the scoreboard right now. Check your connection.</div>'}};
   SS.open=id=>{const mb=$('lbMaps');if(!mb.children.length)for(const m of maps()){const b=document.createElement('button');b.dataset.id=m.id;b.textContent=m.icon+' '+m.name;b.onclick=()=>pick(m.id);mb.appendChild(b)}
