@@ -109,7 +109,7 @@ const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fai
  release:true for App Store / Google Play builds: forces unlockAll off, ignores ?dev=1 (no tester mode),
  and hides the coin shop unless a real billing provider (window.SlyBilling) is attached, so TEST banners never ship.
  Bump version/build for every store upload (also bump CACHE in sw.js so the offline copy updates). */
-const BUILD={version:'1.0.0',build:9,release:false,
+const BUILD={version:'1.0.0',build:10,release:false,
   supportEmail:'slyescape@mail.grokbot.com',privacyUrl:'privacy.html',supportUrl:'support.html'};
 const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
@@ -143,24 +143,35 @@ if(BUILD.release)FEATURES.unlockAll=false; // store builds never ship tester mod
  Turn on: Settings -> tap the version line 5 times (or add ?perf=1 to the web URL). Tap the overlay's 'off' to hide it.
  Shows FPS, counts of slow frames (>33ms, >50ms) and the 8 slowest frames with tags saying what happened in them.
  Code marks events with PERF.tag('name'); when the overlay is off that is a single boolean check. */
-const FRAMEQ=[]; // small deferred jobs run one per frame at the end of light frames
-const PERF={on:false,cur:[],slow:[],n:0,n33:0,n50:0,ivs:new Float32Array(60),ii:0,el:null,lastUi:0,heap:0,
-  tag(t){if(t==='level-start'){this.ls=performance.now();this.skip=3}if(this.on&&this.cur.indexOf(t)<0)this.cur.push(t)},ls:0,nLoad:0,
-  // the first frames of a level (ground image + sprite pre-build while the level appears) are counted separately as 'loading'
-
-  frame(iv,work,lvl){if(!this.on)return;if(this.skip>0||performance.now()-this.ls<500){this.skip--;if(iv>33)this.nLoad++;this.cur.length=0;return}this.n++;this.ivs[this.ii++%60]=iv;if(iv>33)this.n33++;if(iv>50)this.n50++;
+const FRAMEQ=[];
+// warm every font + glyph set the game draws on canvases once at startup, so the first combo/label never waits on font loading
+const warmFonts=()=>{try{const c=document.createElement('canvas').getContext('2d');for(const f of ['900 30px system-ui','italic 900 34px system-ui','800 20px system-ui','bold 20px sans-serif','900 20px system-ui','italic 900 20px system-ui'])
+  {c.font=f;c.fillText('COMBO x0123456789 Nice! Great! Awesome! INSANE! LEGENDARY! +★✓🔥⭐💥🪙',0,20);c.strokeText('COMBO x0123456789!',0,20)}}catch(e){}};
+warmFonts();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(warmFonts); // small deferred jobs run one per frame at the end of light frames
+const PERF={on:false,cur:[],slow:[],n:0,n33:0,n50:0,nLoad:0,nPause:0,ivs:new Float32Array(60),ii:0,el:null,body:null,lastUi:0,heap:0,ls:0,skip:0,hid:false,
+  // level start: stats reset automatically, and its loading frames are counted as 'level-load' instead of slow frames
+  tag(t){if(t==='level-start'){this.ls=performance.now();this.skip=3;if(this.on)this.reset()}if(this.on&&this.cur.indexOf(t)<0)this.cur.push(t)},
+  frame(iv,work,lvl){if(!this.on)return;
+    // app in background / screen off / paused: not a game hitch
+    if(this.hid||iv>1000){this.nPause++;this.hid=false;this.cur.length=0;return}
+    if(this.skip>0||performance.now()-this.ls<500){this.skip--;if(iv>33)this.nLoad++;this.cur.length=0;return}
+    this.n++;this.ivs[this.ii++%60]=iv;if(iv>33)this.n33++;if(iv>50)this.n50++;
     const m=performance.memory;if(m){const h=m.usedJSHeapSize;if(this.heap&&h<this.heap-1e6)this.tag('GC');this.heap=h}
     if(iv>33){const tags=this.cur.length?this.cur.join(' '):(work<iv*0.5?'idle-gap (GC/system?)':'draw');this.slow.push({iv:Math.round(iv),w:Math.round(work),tags,lvl,at:Math.round(performance.now()/100)/10});
       this.slow.sort((a,b)=>b.iv-a.iv);if(this.slow.length>8)this.slow.length=8}
     this.cur.length=0;const now=performance.now();if(now-this.lastUi>500){this.lastUi=now;this.ui()}},
-  ui(){if(!this.el){const d=document.createElement('div');d.id='perfBox';d.style.cssText='position:fixed;left:6px;bottom:6px;z-index:99999;background:rgba(0,0,0,.78);color:#fff;font:11px/1.35 monospace;padding:6px 8px;border-radius:8px;max-width:94vw;pointer-events:auto;white-space:pre';
-      d.onclick=e=>{if(e.target.dataset.k==='off')PERF.set(false);if(e.target.dataset.k==='reset')PERF.reset()};document.body.appendChild(d);this.el=d}
+  ui(){if(!this.el){const d=document.createElement('div');d.id='perfBox';
+      d.style.cssText='position:fixed;left:4px;top:calc(env(safe-area-inset-top,0px) + 56px);z-index:99999;background:rgba(0,0,0,.8);color:#fff;font:11px/1.35 monospace;padding:6px;border-radius:8px;width:max-content;max-width:calc(100vw - 8px);box-sizing:border-box;pointer-events:auto;white-space:pre-wrap;word-break:break-word';
+      const bs='display:inline-block;font:bold 14px system-ui;padding:9px 16px;margin:0 8px 6px 0;border-radius:8px;border:0;color:#111;';
+      d.innerHTML='<button data-k="reset" style="'+bs+'background:#ffd23f">Reset</button><button data-k="off" style="'+bs+'background:#ff8080">Off</button><div></div>';
+      d.onclick=e=>{e.stopPropagation();const k=e.target.dataset&&e.target.dataset.k;if(k==='off')PERF.set(false);else if(k==='reset')PERF.reset()};
+      document.body.appendChild(d);this.el=d;this.body=d.lastChild}
     let a=0;const k=Math.min(60,this.n);for(let i=0;i<k;i++)a+=this.ivs[i];const fps=k?Math.round(1000/(a/k)):0;
-    this.el.innerHTML='FPS '+fps+' · frames '+this.n+' · >33ms '+this.n33+' · >50ms '+this.n50+' · level-load hitches '+this.nLoad+'  <b data-k="reset" style="color:#ffd23f">[reset]</b> <b data-k="off" style="color:#ff8080">[off]</b>\n'+
-      'res '+(G.dpr||0).toFixed(2)+'x · '+(G.L?G.L.name:'-')+' · build '+BUILD.build+'\nslowest frames (ms total / ms game work / what happened):\n'+
-      (this.slow.map(f=>f.iv+' / '+f.w+'  '+f.tags+'  ['+f.lvl+' @'+f.at+'s]').join('\n')||'(none yet)')},
-  reset(){this.slow=[];this.n=this.n33=this.n50=0;this.ui()},
-  set(v){this.on=v;try{localStorage.setItem('slyescape.perf',v?'1':'0')}catch(e){}if(v){this.reset()}else if(this.el){this.el.remove();this.el=null}}};
+    this.body.textContent='FPS '+fps+' · '+this.n+' frames\n>33ms '+this.n33+' · >50ms '+this.n50+'\nload '+this.nLoad+' · paused '+this.nPause+' · res '+(G.dpr||0).toFixed(2)+'x · b'+BUILD.build+'\n'+(G.L?G.L.name:'-')+'\nslowest (total/work ms, what):\n'+
+      (this.slow.map(f=>f.iv+'/'+f.w+' '+f.tags+' @'+f.at+'s').join('\n')||'(none yet)')},
+  reset(){this.slow=[];this.n=this.n33=this.n50=this.nLoad=this.nPause=0;this.ivs.fill(0);this.ii=0;if(this.el)this.ui()},
+  set(v){this.on=v;try{localStorage.setItem('slyescape.perf',v?'1':'0')}catch(e){}if(v){this.reset();this.ui()}else if(this.el){this.el.remove();this.el=this.body=null}}};
+{const h=()=>{PERF.hid=true};document.addEventListener('visibilitychange',h);document.addEventListener('pause',h);document.addEventListener('resume',h);window.addEventListener('pageshow',h)}
 try{PERF.on=localStorage.getItem('slyescape.perf')==='1'||/[?&]perf=1\b/.test(location.search)}catch(e){}
 /* ===================== PARENTAL GATE (FEATURES.parentalGate) =====================
  Shown before any real-money purchase, restore, and before leaving the game (privacy/support pages).
@@ -2342,14 +2353,16 @@ const GFX=(()=>{
     sx.setTransform(1,0,0,1,0,0);sx.clearRect(0,0,w,h);sx.globalCompositeOperation='source-over';sx.drawImage(c,0,0);sx.globalCompositeOperation='source-in';sx.fillStyle='rgba(255,250,225,1)';sx.fillRect(0,0,w,h);
     sx.globalCompositeOperation='destination-out';sx.drawImage(c,-LX*px,-LY*px);sx.globalCompositeOperation='source-over';
     x.globalCompositeOperation='source-atop';x.globalAlpha=0.8;x.drawImage(scratch,0,0,w,h,0,0,w,h);x.globalAlpha=1;x.globalCompositeOperation='source-over'}
-  function build(o,rq){const T=o.T,zz=rq/o.size,hh=T.h*zz,[half,top,bot]=bbox(T,rq,hh,o),sd=Math.min(SD(),Math.sqrt(SPRITE_MAXPX/Math.max(1,half*2*(top+bot)))),w=Math.ceil((half*2)*sd),h=Math.ceil((top+bot)*sd),c=mk(w,h),x=c.getContext('2d');
+  // a sprite build in 4 steps; queued builds run one step per frame (see pumpQ) so none costs a whole frame
+  function build(o,rq){const g=buildGen(o,rq);let r;while(!(r=g.next()).done);return r.value}
+  function* buildGen(o,rq){const T=o.T,zz=rq/o.size,hh=T.h*zz,[half,top,bot]=bbox(T,rq,hh,o),sd=Math.min(SD(),Math.sqrt(SPRITE_MAXPX/Math.max(1,half*2*(top+bot)))),w=Math.ceil((half*2)*sd),h=Math.ceil((top+bot)*sd),c=mk(w,h),x=c.getContext('2d');
     const fr=frameOf(o),saveT=G.t,saveW=o.wob,saveC=ctx;
     if(fr&&T.shape==='farmer')o._ph=(fr-0.5)/12*6.2832;else if(fr){const ph=(fr-0.5)/8*6.2832;G.t=T.shape==='animal'?(ph-(o.rot||0))/14:(ph-(o.rot||0))/10}
-    o.wob=0;x.setTransform(sd,0,0,sd,0,0);ctx=x;try{drawObj(o,half,top,zz,1)}finally{ctx=saveC;G.t=saveT;o.wob=saveW;delete o._ph}
-    x.setTransform(1,0,0,1,0,0);light(x,w,h,half*sd,top*sd,rq*sd,top*sd);rim(c,x,w,h,Math.max(1.5,rq*0.09*sd));
+    o.wob=0;x.setTransform(sd,0,0,sd,0,0);ctx=x;try{drawObj(o,half,top,zz,1)}finally{ctx=saveC;G.t=saveT;o.wob=saveW;delete o._ph}yield;
+    x.setTransform(1,0,0,1,0,0);light(x,w,h,half*sd,top*sd,rq*sd,top*sd);rim(c,x,w,h,Math.max(1.5,rq*0.09*sd));yield;
     // blurred silhouette for the cast shadow (half res)
     const s=mk(w/2+8,h/2+8),y=s.getContext('2d');y.shadowColor='rgba(25,10,45,1)';y.shadowBlur=Math.max(2,rq*0.12);y.shadowOffsetX=4000;y.drawImage(c,4-4000,4,w/2,h/2);
-    x.globalCompositeOperation='destination-over';x.drawImage(AO,(half-rq*1.05)*sd,(top-rq*0.34)*sd,rq*2.1*sd,rq*0.68*sd);x.globalCompositeOperation='source-over';
+    x.globalCompositeOperation='destination-over';x.drawImage(AO,(half-rq*1.05)*sd,(top-rq*0.34)*sd,rq*2.1*sd,rq*0.68*sd);x.globalCompositeOperation='source-over';yield;
     return{c:bmp(c),s:bmp(s),half,top,bot,rq}}
   function sprite(o,rr){const T=o.T;if(!T._gid)T._gid=gid++;const rq=Math.pow(1.07,Math.round(Math.log(Math.max(2,rr))/Math.log(1.07)));
     const k=T._gid+'|'+o.size+'|'+rq.toFixed(2)+'|'+(o.face||1)+'|'+frameOf(o)+'|'+(o.scared?1:0)+'|'+(o.ck||'');let e=CACHE.get(k);
@@ -2364,12 +2377,15 @@ const GFX=(()=>{
   function buildQ(tag){for(const[k,[o,rq,bk,lk]]of SQ){SQ.delete(k);if(CACHE.has(k))continue;PERF.tag(tag);const e=build(o,rq);STAT.builds++;CACHE.set(k,e);if(bk){if(!NEAR.has(bk))NEAR.set(bk,e);if(!NEAR.has(lk))NEAR.set(lk,e)}if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value);return true}return false}
   // called at the end of each rAF frame: Android WebView rarely fires idle callbacks during a continuous rAF loop,
   // so queued sprites are finished here instead - at most one per frame, and only when this frame was light
-  function pumpQ(work){if(SQ.size&&work<5)buildQ('queued-sprite-build')}
+  let JOB=null;
+  function pumpQ(work){if(work>6)return;if(!JOB){for(const[k,v]of SQ){SQ.delete(k);if(!CACHE.has(k)){JOB={k,v,g:buildGen(v[0],v[1])};break}}if(!JOB)return}
+    PERF.tag('queued-sprite-step');const r=JOB.g.next();if(!r.done)return;const{k,v}=JOB,e=r.value;JOB=null;STAT.builds++;CACHE.set(k,e);
+    if(v[2]){if(!NEAR.has(v[2]))NEAR.set(v[2],e);if(!NEAR.has(v[3]))NEAR.set(v[3],e)}if(CACHE.size>MAXC)CACHE.delete(CACHE.keys().next().value)}
   // level start (loading moment): build every object's sprite at the current zoom up front, time-boxed; leftovers queue
   function prewarm(ms){const t0=performance.now(),z=G.zoom(),seen=new Set();for(const o of G.objs){const T=o.T;if(!T||T.draw&&T.shape!=='farmer')continue;if(T.shape==='farmer')o.ck=((o.ch&&o.ch.id)||'farmer')+(o.edible?'E':'');
       const kk=(T._gid||0)+'|'+o.size+'|'+(o.ck||'')+'|'+(o.face||1);if(seen.has(kk))continue;seen.add(kk);const rr=o.size*z;
       if(performance.now()-t0<ms){bud=99;budF=G.fno;sprite(o,rr)}else{const rq=Math.pow(1.07,Math.round(Math.log(Math.max(2,rr))/Math.log(1.07)));{if(!T._gid)T._gid=gid++;const k=T._gid+'|'+o.size+'|'+rq.toFixed(2)+'|'+(o.face||1)+'|'+frameOf(o)+'|'+(o.scared?1:0)+'|'+(o.ck||'');if(!CACHE.has(k))SQ.set(k,[o,rq,T._gid+'|'+o.size+'|'+(o.face||1)+'|'+frameOf(o)+'|'+(o.scared?1:0)+'|'+(o.ck||''),T._gid+'|'+o.size])}}}}
-  function drainSQ(dl){sqOn=false;let n=0;while(buildQ('idle-sprite-build')){if(++n>=1&&!(dl&&dl.timeRemaining&&!dl.didTimeout&&dl.timeRemaining()>12))break}
+  function drainSQ(dl){sqOn=false;if(G.state==='play')return;let n=0;while(buildQ('idle-sprite-build')){if(++n>=1&&!(dl&&dl.timeRemaining&&!dl.didTimeout&&dl.timeRemaining()>12))break}
     if(SQ.size){sqOn=true;(window.requestIdleCallback?f=>requestIdleCallback(f,{timeout:60}):f=>setTimeout(f,16))(drainSQ)}}
   const isPlant=T=>T.shape==='tree'||T.shape==='crop'||T.orchTree||/tree|pine|palm|cactus|flower|corn|grape|plant|bush|fern|mushroom/.test(T.id||'');
   function obj(o,sx0,sy0,z){const T=o.T,k=depth(sy0),rr=o.size*z*k,hh=T.h*z*k;if(!OPT.sprites){ctx.drawImage(AO,sx0-rr*1.05,sy0-rr*0.34,rr*2.1,rr*0.68);drawObj(o,sx0,sy0,z*k,1);return}
@@ -2549,7 +2565,7 @@ const GTILES={key:'',tiles:new Map(),TS:256,pool:[],want:[],next:null,hits:0,
   // ground tiles are never built inside the drawing pass: a missing tile is drawn straight from the level's ground
   // image (same pixels, scaled on the fly) and queued; GTILES.slice() builds queued tiles at the end of the frame
   // within a small time budget (Android WebView rarely runs idle callbacks while the game animates)
-  BUDGET:3,
+  BUDGET:2,
   canvas(w,h){const t=this.pool.pop();if(t){if(t.width!==w||t.height!==h){t.width=w;t.height=h}else t.getContext('2d').clearRect(0,0,w,h);return t}const c=document.createElement('canvas');c.width=w;c.height=h;return c},
   free(m){for(const t of m.values())if(this.pool.length<160)this.pool.push(t);m.clear()},
   draw(L,ax,ay,bx,by){const src=G.groundCv,m=ctx.getTransform(),d=m.a,gx=Math.round(ax*d+m.e),gy=Math.round(ay*d+m.f),gw=Math.round((bx-ax)*d),gh=Math.round((by-ay)*d);
@@ -2568,11 +2584,11 @@ const GTILES={key:'',tiles:new Map(),TS:256,pool:[],want:[],next:null,hits:0,
     const TS=this.TS,gx=Math.round(((-G.cam.x)*zn+G.W/2)*d+m.e),gy=Math.round(((-G.cam.y)*zn*TILT+G.H*0.55)*d+m.f),CW=cv.width,CH=cv.height,
       i0=Math.max(0,Math.floor(-gx/TS)-1),j0=Math.max(0,Math.floor(-gy/TS)-1),i1=Math.min(Math.ceil(gw/TS)-1,Math.floor((CW-gx)/TS)+1),j1=Math.min(Math.ceil(gh/TS)-1,Math.floor((CH-gy)/TS)+1);
     for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++)if(!N.tiles.has(j*4096+i))N.todo.push(i,j)},
-  slice(t0){let n=0;const lim=performance.now()+this.BUDGET;const C=this.cur,W=this.want;
+  slice(wk){if(wk>8&&!this.want.length)return;let n=0;const lim=performance.now()+this.BUDGET;const C=this.cur,W=this.want;
     while(C&&W.length&&C.key===this.key&&(n<1||performance.now()<lim)){const i=W.shift(),j=W.shift(),k=j*4096+i;if(this.tiles.has(k))continue;
       PERF.tag('tile-build(sliced)');if(this.tiles.size>140){const k0=this.tiles.keys().next().value;this.pool.push(this.tiles.get(k0));this.tiles.delete(k0)}
       this.tiles.set(k,this.make(C.src,C.kx,C.ky,C.gw,C.gh,i,j));n++}
-    const N=this.next;while(N&&N.todo.length&&performance.now()<lim){const i=N.todo.shift(),j=N.todo.shift();if(N.tiles.has(j*4096+i))continue;
+    const N=this.next;if(wk>4||n)return;while(N&&N.todo.length&&performance.now()<lim&&n<1){n++;const i=N.todo.shift(),j=N.todo.shift();if(N.tiles.has(j*4096+i))continue;
       PERF.tag('tile-prebuild(sliced)');N.tiles.set(j*4096+i,this.make(N.src,N.gw/N.src.width,N.gh/N.src.height,N.gw,N.gh,i,j))}}};
 function render(){
   ctx.setTransform(G.dpr,0,0,G.dpr,0,0);
@@ -2694,7 +2710,7 @@ function frame(now){const iv=now-last,w0=performance.now();if(PERF.on&&G.state==
   if(G.state==='play')update(dt);if(G.state==='play'||G.state==='end'||G.state==='pause')render();
   // HUD DOM: write only when the value changes; progress bar animates with transform (compositor) instead of width (layout every frame for 0.2s after each swallow)
   const sc=G.score||0;if(sc!==HUDV.s){HUDV.s=sc;HUDV.se.textContent=sc}const pr=G.L?Math.round(G.progress()*1000)/1000:0;if(pr!==HUDV.p){HUDV.p=pr;HUDV.be.style.transform='scaleX('+pr+')'}
-  if(G.state==='play'&&G.GFX){const wk=performance.now()-w0;if(FRAMEQ.length&&wk<5){PERF.tag('queued-text-build');FRAMEQ.shift()()}else G.GFX.pumpQ(wk);GTILES.slice(w0)}if(PERF.on)PERF.lw=performance.now()-w0;requestAnimationFrame(frame)}
+  if(G.state==='play'&&G.GFX){const wk=performance.now()-w0;if(FRAMEQ.length&&wk<5){PERF.tag('queued-text-build');FRAMEQ.shift()()}else G.GFX.pumpQ(wk);GTILES.slice(performance.now()-w0)}if(PERF.on)PERF.lw=performance.now()-w0;requestAnimationFrame(frame)}
 const HUDV={s:null,p:null,se:$('hScore'),be:$('barFill')};
 G.step=(sec)=>{for(let t=0;t<sec&&G.state==='play';t+=1/60)update(1/60);render()}; // test helper
 G.stepNoRender=(dt)=>update(dt); // test helper
@@ -2905,16 +2921,18 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
      Now each text is rendered once (glow + outlines + gradient) into a cached sprite and just drawn each frame.
      Rainbow tiers bake glow + outline only and draw their cycling gradient fill live (no blur, cheap). */
   const TXC=new Map();
+  let TXM=null,TXG=null;
   const textSprite=(txt,font,t,glow,word)=>{const key=txt+'|'+font+'|'+t.word+'|'+glow,hit=TXC.get(key);if(hit){TXC.delete(key);TXC.set(key,hit);return hit}
-    PERF.tag('text-build');const R=Math.min(3,Math.max(2,G.dpr||2))*1.15,m=document.createElement('canvas').getContext('2d');m.font=font;const i=T.indexOf(t),bl=glow?(word?20:14+i*4):0,tw=m.measureText(txt).width,pad=6+bl*0.9,
+    PERF.tag('text-build');const R=Math.min(3,Math.max(2,G.dpr||2))*1.15,m=TXM||(TXM=document.createElement('canvas').getContext('2d'));m.font=font;const i=T.indexOf(t),bl=glow?(word?20:14+i*4):0,tw=m.measureText(txt).width,pad=6+bl*0.9,
       w=tw+pad*2,h=(word?34:30)*1.15+pad*2,cv=document.createElement('canvas');cv.width=Math.ceil(w*R);cv.height=Math.ceil(h*R);const c=cv.getContext('2d');
     c.scale(R,R);c.translate(w/2,h/2);c.font=font;c.textAlign='center';c.textBaseline='middle';c.lineJoin='round';
-    if(bl){const gc=document.createElement('canvas');gc.width=Math.ceil(w);gc.height=Math.ceil(h);const g=gc.getContext('2d');g.translate(w/2,h/2);g.font=font;g.textAlign='center';g.textBaseline='middle';g.lineJoin='round';
-      g.shadowColor=t.glow;g.shadowBlur=bl;g.lineWidth=word?10:9;g.strokeStyle='#2a0f4b';g.strokeText(txt,0,0);c.drawImage(gc,-w/2,-h/2,w,h)} // soft glow blurred at 1x (cheap), crisp text on top at full res
+    if(bl){const GS=0.35,gc=TXG||(TXG=document.createElement('canvas'));gc.width=Math.ceil(w*GS);gc.height=Math.ceil(h*GS);const g=gc.getContext('2d');g.scale(GS,GS);g.translate(w/2,h/2);g.font=font;g.textAlign='center';g.textBaseline='middle';g.lineJoin='round';
+      g.shadowColor=t.glow;g.shadowBlur=bl*GS;g.lineWidth=word?10:9;g.strokeStyle='#2a0f4b';g.strokeText(txt,0,0);c.drawImage(gc,-w/2,-h/2,w,h)} // soft glow blurred at 1x (cheap), crisp text on top at full res
     c.lineWidth=word?10:9;c.strokeStyle='#2a0f4b';c.strokeText(txt,0,0);
     if(!word){c.lineWidth=3;c.strokeStyle='#ffffff';c.strokeText(txt,0,0)}
     if(!t.rainbow){let fill;if(word){fill=c.createLinearGradient(0,-18,0,16);fill.addColorStop(0,'#ffffff');fill.addColorStop(0.45,t.cols[0]);fill.addColorStop(1,t.cols[1])}else{fill=c.createLinearGradient(0,-16,0,14);fill.addColorStop(0,t.cols[0]);fill.addColorStop(1,t.cols[1])}c.fillStyle=fill;c.fillText(txt,0,0)}
-    const sp={c:cv,w,h,ox:w/2,oy:h/2,tw:tw+(word?14:12)};if(TXC.size>40)TXC.delete(TXC.keys().next().value);TXC.set(key,sp);return sp};
+    const sp={c:cv,w,h,ox:w/2,oy:h/2,tw:tw+(word?14:12)};if(TXC.size>90)TXC.delete(TXC.keys().next().value);TXC.set(key,sp);return sp};
+  G._txs=textSprite;G._tiers=T;
   // render the next count's sprite ahead of time (during update, off the draw path) so a new swallow never stalls a frame
   const warm=n=>{const t=tierOf(n);if(t)textSprite('COMBO x'+n,'900 30px system-ui',t,FEATURES.hiFiGraphics&&GFX.quality>=2,false)};
   // build upcoming "COMBO xN" sprites in idle time between frames (never inside a swallow frame); one per idle slice
@@ -2934,7 +2952,7 @@ if(FEATURES.combos){const CF=COMBO_FX,T=CF.tiers;let pop=0,shk=0,flash=0,flashCo
     G.addFx({t:0,life:1.4,draw(c,f){const k=f.t/f.life;c.save();c.globalAlpha=Math.min(1,(1-k)*2.5);c.font='900 22px system-ui';c.textAlign='center';c.lineWidth=5;c.strokeStyle='#5a3a00';c.fillStyle='#ffe14d';const y=G.H*0.2+168-k*14;c.strokeText('+'+n+' 🪙 bonus',G.W/2,y);c.fillText('+'+n+' 🪙 bonus',G.W/2,y);c.restore()}})};
   G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;G.COMBO_FX=CF;
   G.comboShake=()=>shk>0.05&&CF.shake?[(Math.random()-0.5)*2*shk,(Math.random()-0.5)*2*shk]:null;
-  G.use({levelStart(G){G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;pop=shk=flash=0;tierShow=null;const g=FEATURES.hiFiGraphics&&GFX.quality>=2;for(const t of T)textSprite(t.word,'italic 900 34px system-ui',t,g,true);IQ.length=0;for(let n=2;n<=10;n++)warm(n);warmAhead(10,3)},
+  G.use({levelStart(G){G.combo=0;G.comboT=0;G.comboCoins=0;G.comboMax=0;pop=shk=flash=0;tierShow=null;const g=FEATURES.hiFiGraphics&&GFX.quality>=2;for(const t of T)textSprite(t.word,'italic 900 34px system-ui',t,g,true);IQ.length=0;for(let n=2;n<=24;n++)warm(n);warmAhead(24,3)},
   update(G,dt){if(pend){const h=pend.h,i=T.indexOf(h);tierShow={t:0,tier:h,n:pend.n};burst(h.burst,h,true);if(CF.shake)shk=Math.max(shk,h.shake);if(CF.flash&&h.flash){flash=h.flash;flashCol=h.glow}if(pend.c>0)coinShower(pend.c);HEAD_ST.chew=0.6;PERF.tag('combo-tier');G.hook('comboTier',h,i,pend.n);pend=null;pendSmall=null}
     else if(pendSmall){burst(2+T.indexOf(pendSmall)*2,pendSmall,false);pendSmall=null}
     if((G.comboT-=dt)<=0)G.combo=0;pop=Math.max(0,pop-dt*3.2);shk=Math.max(0,shk-dt*shk*7-dt*2);flash=Math.max(0,flash-dt*1.4);if(tierShow&&(tierShow.t+=dt)>1.3)tierShow=null},
