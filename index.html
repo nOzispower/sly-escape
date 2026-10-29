@@ -59,6 +59,13 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 @media (max-height:600px){#mapPrev{display:none}}#mapPrev canvas{position:absolute!important;inset:0;width:100%!important;height:100%!important;border:0!important;border-radius:0!important;display:block}
 #mapPrev .lk{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:#1a0a3a99;font:900 clamp(15px,4.6vw,20px) system-ui;color:#fff;text-shadow:0 2px 4px #000a}
 #mapPrev .lk b{font-size:clamp(26px,9vw,40px);line-height:1}#mapPrev .lk span{color:#ffe14d}
+#endInfo{width:100%;max-width:330px;display:flex;flex-direction:column;gap:6px;flex-shrink:0}#endInfo:empty{display:none}
+#endInfo .ei{display:flex;align-items:center;gap:10px;background:#ffffff1c;border:2px solid #ffffff30;border-radius:14px;padding:6px 10px;text-align:left}
+#endInfo .ei canvas{position:static!important;width:52px!important;height:33px!important;border-radius:7px!important;border:2px solid #fff6!important;flex-shrink:0;display:block}
+#endInfo .ei .ic{width:52px;height:33px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+#endInfo .ei div{min-width:0;line-height:1.2}#endInfo .ei small{display:block;font:800 11px system-ui;letter-spacing:.06em;text-transform:uppercase;opacity:.75}
+#endInfo .ei b{display:block;font:900 15px system-ui;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#endInfo .ei i{font-style:normal;color:#ffe14d;font:900 13px system-ui}
+#endInfo .ei.nx{border-color:#ffd23f88}
 #wTitle{min-width:190px;font-size:20px;font-weight:900}#wStars{font-size:15px;color:#ffe14d}
 .dots{display:flex;gap:5px}.dots i{width:8px;height:8px;border-radius:50%;background:#fff4}.dots i.on{background:#ffe14d}
 .lv{height:86px;border-radius:18px;border:0;font-size:28px;font-weight:900;color:#fff;background:linear-gradient(#5dff9a,#14b35c);box-shadow:0 5px 0 #0a6b37;position:relative}
@@ -95,7 +102,7 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 <div class="scr" id="sSelect"><div id="mapPrev"></div><h2>Levels</h2><div class="wnav"><button class="ic" id="wPrev">‹</button><div><div id="wTitle"></div><div id="wStars"></div></div><button class="ic" id="wNext">›</button></div>
  <div class="grid" id="lvGrid"></div><div class="dots" id="wDots"></div><button class="btn alt" id="bBack">Back</button></div>
 <div class="scr" id="sEnd"><h2 id="eTitle"></h2><div class="stars" id="eStars"></div><div id="eMsg" class="dim"></div><div id="endExtra"></div>
- <button class="btn" id="bNext">Next</button><button class="btn alt" id="bRetry">Retry</button><button class="btn alt" id="bMenu">Menu</button></div>
+ <button class="btn" id="bNext">Next</button><button class="btn alt" id="bRetry">Retry</button><button class="btn alt" id="bMenu">Menu</button><div id="endInfo"></div></div>
 <div class="scr howto" id="sHow"><h2>How to Play</h2><div id="howCards" style="display:flex;flex-direction:column;gap:10px;align-items:center;width:100%"></div><button class="btn alt" id="bHowBack" style="margin-top:6px;flex-shrink:0">Back</button></div>
 <script>
 'use strict';
@@ -979,6 +986,7 @@ G.endLevel=function(win){
   $('eStars').textContent=FEATURES.stars&&win?'★'.repeat(res.stars)+'☆'.repeat(3-res.stars):'';
   $('eMsg').innerHTML='Score '+G.score+(res.msg?'<br>'+res.msg:'');
   {const nx=LEVELS[G.li+1];$('bNext').style.display=win&&nx&&(nx.map||null)===(G.L.map||null)?'':'none'}
+  G.endInfo&&G.endInfo(win);
   setTimeout(()=>G.show('sEnd'),win?500:200);
 };
 function update(dt){G.fno=(G.fno||0)+1;
@@ -2852,6 +2860,19 @@ const THUMB=(()=>{const CACHE=new Map(),DPR=()=>Math.min(3,devicePixelRatio||1),
 G.THUMB=THUMB;
 G.mapThumb=(m,w,h)=>THUMB.map(m,w,h,'width:'+w+'px;height:'+h+'px;border-radius:14px;border:3px solid #fff8;position:static;display:block',true);
 G.worldThumb=(n,w,h)=>THUMB.world(n,w,h,'width:'+w+'px;height:'+h+'px;border-radius:14px;border:3px solid #fff8;position:static;display:block',true);
+// LEVEL CLEAR screen: "Completed" + "Next up" lines under the buttons (thumbnails reuse THUMB's cache, made once per world)
+{const TH=new Map(),thumb=p=>{let c=TH.get(p);if(!c){const m=p>=FARM_PAGES?MAPS[p-FARM_PAGES]:null;c=m?G.mapThumb(m,52,33):G.worldThumb(p+1,52,33);TH.set(p,c)}return c};
+  const label=i=>{const p=Math.floor(i/PER_PAGE),m=p>=FARM_PAGES?MAPS[p-FARM_PAGES]:null;return(m?m.icon+' '+m.name:'World '+(p+1)+' · '+(LEVELS[p*PER_PAGE].theme||'Meadow'))+' — Level '+(i%PER_PAGE+1)};
+  const row=(cls,p,small,txt,extra)=>{const d=document.createElement('div');d.className='ei '+cls;const t=document.createElement('div');t.innerHTML='<small>'+small+'</small><b></b>'+(extra||'');t.querySelector('b').textContent=txt;
+    if(p!=null){const c=thumb(p);if(c.parentNode)c.remove();d.appendChild(c)}else{const s=document.createElement('span');s.className='ic';s.textContent='🏆';d.appendChild(s)}d.appendChild(t);return d};
+  G.endInfo=win=>{const el=$('endInfo');el.textContent='';if(!win||!G.L)return;const i=G.li,p=Math.floor(i/PER_PAGE);
+    // the completed row shows the icon only (thumbnail canvases can sit in one place at a time)
+    const done=row('dn',null,'Completed',label(i));done.querySelector('.ic').textContent=G.L.bonus?'⭐':'✅';el.appendChild(done);
+    const n=i+1;if(n>=LEVELS.length){el.appendChild(row('nx',null,'Next up','All levels complete! 🎉'));return}
+    const np=Math.floor(n/PER_PAGE),nm=np>=FARM_PAGES?MAPS[np-FARM_PAGES]:null,st=G.store;let lock='';
+    if(np!==p&&st){const kind=nm?'maps':'worlds',id=nm?nm.id:np+1;if(!st.owns(kind,id))lock='<i>🔒 '+(nm?'Map':'World')+' locked · 🪙 '+(st.price(kind,id)||0).toLocaleString('en-US')+'</i>'}
+    if(!lock&&G.canPlay&&!G.canPlay(n))lock='<i>🔒 locked</i>';
+    el.appendChild(row('nx',np,np!==p?'Next up · new '+(nm?'map':'world'):'Next up',label(n),lock))}}
 $('wPrev').onclick=()=>G.renderSelect(G.page-1);$('wNext').onclick=()=>G.renderSelect(G.page+1);
 {let sx=null;$('sSelect').addEventListener('pointerdown',e=>sx=e.clientX);$('sSelect').addEventListener('pointerup',e=>{if(sx!=null&&Math.abs(e.clientX-sx)>50)G.renderSelect(G.page+(e.clientX<sx?1:-1));sx=null})}
 G.ui={tool(label,fn){const b=document.createElement('button');b.className='ic';b.textContent=label;b.onclick=e=>{e.stopPropagation();fn(b)};$('tools').appendChild(b);return b},
