@@ -59,11 +59,11 @@ h2{font-size:30px;font-weight:900;text-shadow:0 3px 0 #ff2fa0}
 @media (max-height:600px){#mapPrev{display:none}}#mapPrev canvas{position:absolute!important;inset:0;width:100%!important;height:100%!important;border:0!important;border-radius:0!important;display:block}
 #mapPrev .lk{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:#1a0a3a99;font:900 clamp(15px,4.6vw,20px) system-ui;color:#fff;text-shadow:0 2px 4px #000a}
 #mapPrev .lk b{font-size:clamp(26px,9vw,40px);line-height:1}#mapPrev .lk span{color:#ffe14d}
-#endInfo{width:100%;max-width:330px;display:flex;flex-direction:column;gap:6px;flex-shrink:0}#endInfo:empty{display:none}
-#endInfo .ei{display:flex;align-items:center;gap:10px;background:#ffffff1c;border:2px solid #ffffff30;border-radius:14px;padding:6px 10px;text-align:left}
-#endInfo .ei canvas{position:static!important;width:52px!important;height:33px!important;border-radius:7px!important;border:2px solid #fff6!important;flex-shrink:0;display:block}
-#endInfo .ei .ic{width:52px;height:33px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
-#endInfo .ei div{min-width:0;line-height:1.2}#endInfo .ei small{display:block;font:800 11px system-ui;letter-spacing:.06em;text-transform:uppercase;opacity:.75}
+#endInfo{width:100%;max-width:330px;display:flex;flex-direction:column;gap:4px;margin-top:-2px;flex-shrink:0}#endInfo:empty{display:none}
+#endInfo .ei{display:flex;align-items:center;gap:10px;background:#ffffff1c;border:2px solid #ffffff30;border-radius:12px;padding:3px 10px;text-align:left}
+#endInfo .ei canvas{position:static!important;width:48px!important;height:30px!important;border-radius:7px!important;border:2px solid #fff6!important;flex-shrink:0;display:block}
+#endInfo .ei .ic{width:48px;height:30px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+#endInfo .ei div{min-width:0;line-height:1.15}#endInfo .ei small{display:block;font:800 11px system-ui;letter-spacing:.06em;text-transform:uppercase;opacity:.75}
 #endInfo .ei b{display:block;font:900 15px system-ui;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#endInfo .ei i{font-style:normal;color:#ffe14d;font:900 13px system-ui}
 #endInfo .ei.nx{border-color:#ffd23f88}
 #wTitle{min-width:190px;font-size:20px;font-weight:900}#wStars{font-size:15px;color:#ffe14d}
@@ -2861,7 +2861,7 @@ G.THUMB=THUMB;
 G.mapThumb=(m,w,h)=>THUMB.map(m,w,h,'width:'+w+'px;height:'+h+'px;border-radius:14px;border:3px solid #fff8;position:static;display:block',true);
 G.worldThumb=(n,w,h)=>THUMB.world(n,w,h,'width:'+w+'px;height:'+h+'px;border-radius:14px;border:3px solid #fff8;position:static;display:block',true);
 // LEVEL CLEAR screen: "Completed" + "Next up" lines under the buttons (thumbnails reuse THUMB's cache, made once per world)
-{const TH=new Map(),thumb=p=>{let c=TH.get(p);if(!c){const m=p>=FARM_PAGES?MAPS[p-FARM_PAGES]:null;c=m?G.mapThumb(m,52,33):G.worldThumb(p+1,52,33);TH.set(p,c)}return c};
+{const TH=new Map(),thumb=p=>{let c=TH.get(p);if(!c){const m=p>=FARM_PAGES?MAPS[p-FARM_PAGES]:null;c=m?THUMB.map(m,48,30,'',false):THUMB.world(p+1,48,30,'',false);TH.set(p,c)}return c};
   const label=i=>{const p=Math.floor(i/PER_PAGE),m=p>=FARM_PAGES?MAPS[p-FARM_PAGES]:null;return(m?m.icon+' '+m.name:'World '+(p+1)+' · '+(LEVELS[p*PER_PAGE].theme||'Meadow'))+' — Level '+(i%PER_PAGE+1)};
   const row=(cls,p,small,txt,extra)=>{const d=document.createElement('div');d.className='ei '+cls;const t=document.createElement('div');t.innerHTML='<small>'+small+'</small><b></b>'+(extra||'');t.querySelector('b').textContent=txt;
     if(p!=null){const c=thumb(p);if(c.parentNode)c.remove();d.appendChild(c)}else{const s=document.createElement('span');s.className='ic';s.textContent='🏆';d.appendChild(s)}d.appendChild(t);return d};
