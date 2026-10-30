@@ -3633,6 +3633,10 @@ if(FEATURES.leaderboard){
       if(ok){backoff=15000}else this.retry();return ok},
     retry(){if(retryT)return;retryT=setTimeout(()=>{retryT=0;backoff=Math.min(backoff*2,600000);this.flush()},backoff)},
     getTop(map,n){return this.backend.getTop(map,n||CFG.topN,st().pid)},
+    // my place on each map I have a score on (only those maps are asked, in parallel); cached in the save for instant tabs
+    rankCache(){return st().rk||{}},
+    async myRanks(){const l=st(),ms=Object.keys(l.best).filter(m=>!l.q.some(e=>e.map===m));const out=Object.assign({},l.rk||{});
+      await Promise.all(ms.map(m=>this.getMyRank(m).then(r=>{out[m]=r?r.rank:0}).catch(()=>{})));for(const m in out)if(!(m in l.best))delete out[m];l.rk=out;G.persist();return out},
     getMyRank(map){return this.backend.getMyRank(map,st().pid)}};
   window.addEventListener('online',()=>SS.flush());document.addEventListener('resume',()=>SS.flush());document.addEventListener('visibilitychange',()=>{if(!document.hidden)SS.flush()});
   // --- UI ---
@@ -3641,6 +3645,12 @@ if(FEATURES.leaderboard){
 #lbMaps{position:relative;display:flex;gap:8px;overflow-x:auto;width:100%;max-width:420px;padding:4px 2px 8px;flex-shrink:0;scrollbar-width:none}#lbMaps::-webkit-scrollbar{display:none}
 #lbMaps button{flex-shrink:0;border:2px solid #ffffff40;background:#ffffff1c;color:#fff;border-radius:14px;padding:7px 11px;font:900 14px system-ui;white-space:nowrap}
 #lbMaps button.on{background:linear-gradient(#ffcf33,#ff8a00);border-color:#fff3;box-shadow:0 3px 0 #b85a00}
+#lbMaps button.m1,#lbMaps button.m2,#lbMaps button.m3{border-width:2px;text-shadow:0 1px 2px #0006}
+#lbMaps button.m1{background:linear-gradient(135deg,#fff3a8,#f5c518 45%,#b8860b);border-color:#fff6c8;color:#4a3000;text-shadow:none;box-shadow:0 0 10px #ffd70099,0 3px 0 #8a6100}
+#lbMaps button.m2{background:linear-gradient(135deg,#ffffff,#c9d1da 45%,#8a96a3);border-color:#f4f7fa;color:#28313b;text-shadow:none;box-shadow:0 0 10px #dfe6ee88,0 3px 0 #5f6b78}
+#lbMaps button.m3{background:linear-gradient(135deg,#ffd2a6,#cd7f32 45%,#8b4a14);border-color:#ffd9b3;color:#fff;box-shadow:0 0 10px #cd7f3288,0 3px 0 #6b3608}
+#lbMaps button.on.m1,#lbMaps button.on.m2,#lbMaps button.on.m3{outline:3px solid #fff;outline-offset:1px}
+#lbMaps button .md{margin-left:5px}
 .lbList{width:100%;max-width:400px;display:flex;flex-direction:column;gap:5px;overflow-y:auto;min-height:0}
 #sLB .lbList{flex:1}
 .lbRow{display:flex;align-items:center;gap:8px;background:#ffffff1c;border:2px solid #ffffff26;border-radius:13px;padding:4px 10px;font:900 16px system-ui;flex-shrink:0}
@@ -3680,7 +3690,7 @@ if(FEATURES.leaderboard){
       b.onclick=()=>askNick('Pick a nickname',n=>{if(n)showEnd(map)});li.appendChild(b);return}
     await SS.flush().catch(()=>{});
     try{const [top,r]=await Promise.all([SS.getTop(map,CFG.topN),SS.getMyRank(map)]);if(!$('lbEndList'))return;rowsInto(li,top,24);if(!top.length)li.innerHTML='<div class="lbMsg">No scores yet - you could be first!</div>';
-      me.textContent=r?meLine(r):SS.pending(map)?'Your score will upload when you\'re online.':''}
+      {const l=st();l.rk=l.rk||{};if(r)l.rk[map]=r.rank}me.textContent=r?meLine(r):SS.pending(map)?'Your score will upload when you\'re online.':''}
     catch(e){li.innerHTML='<div class="lbMsg">Scoreboard offline - your best ('+Number(st().best[map]||0).toLocaleString()+') will upload later.</div>';me.textContent=''}};
   // leaderboards screen
   const scr=document.createElement('div');scr.className='scr';scr.id='sLB';
@@ -3689,9 +3699,14 @@ if(FEATURES.leaderboard){
   const pick=async id=>{cur=id;for(const b of $('lbMaps').children){const on=b.dataset.id===id;b.classList.toggle('on',on);if(on){const mb=$('lbMaps');mb.scrollLeft=Math.max(0,b.offsetLeft-(mb.clientWidth-b.offsetWidth)/2)}}const my=++seq,li=$('lbList');li.innerHTML='<div class="lbMsg">Loading…</div>';$('lbMeLine').textContent='';
     try{const [top,r]=await Promise.all([SS.getTop(id,CFG.listN),SS.getMyRank(id)]);if(my!==seq)return;rowsInto(li,top,30);if(!top.length)li.innerHTML='<div class="lbMsg">No scores yet. Clear the last level of this map to be first!</div>';
       $('lbMeLine').textContent=r?meLine(r):SS.nick?'':'Clear a map\'s last level to join.'}catch(e){if(my===seq)li.innerHTML='<div class="lbMsg">Can\'t reach the scoreboard right now. Check your connection.</div>'}};
-  SS.open=id=>{const mb=$('lbMaps');if(!mb.children.length)for(const m of maps()){const b=document.createElement('button');b.dataset.id=m.id;b.textContent=m.icon+' '+m.name;b.onclick=()=>pick(m.id);mb.appendChild(b)}
-    G.show('sLB');const sel=id0(id);pick(sel);const b=[...mb.children].find(x=>x.dataset.id===sel);if(b)b.scrollIntoView({inline:'center',block:'nearest'});SS.flush()};
-  const id0=id=>id||cur||mapKey(((G.li??9)|0)-((G.li??9)|0)%10+9)||'farm1';
+  const MED=['','🥇','🥈','🥉'];
+  const medals=rk=>{for(const b of $('lbMaps').children){const k=rk[b.dataset.id]|0,m=k>=1&&k<=3?k:0;b.classList.remove('m1','m2','m3');if(m)b.classList.add('m'+m);
+    let s=b.querySelector('.md');if(m){if(!s){s=document.createElement('span');s.className='md';b.appendChild(s)}s.textContent=MED[m]}else if(s)s.remove()}};
+  const center=id=>{const mb=$('lbMaps'),b=[...mb.children].find(x=>x.dataset.id===id);if(b)mb.scrollLeft=Math.max(0,b.offsetLeft-(mb.clientWidth-b.offsetWidth)/2)};
+  SS.open=id=>{const mb=$('lbMaps');if(!mb.children.length)for(const m of maps()){const b=document.createElement('button');b.dataset.id=m.id;const t=document.createElement('span');t.textContent=m.icon+' '+m.name;b.appendChild(t);b.onclick=()=>pick(m.id);mb.appendChild(b)}
+    G.show('sLB');medals(SS.rankCache());const sel=id0(id);pick(sel);requestAnimationFrame(()=>center(sel));
+    SS.flush().catch(()=>{}).then(()=>SS.myRanks()).then(medals).catch(()=>{})};
+  const id0=id=>{if(id||cur)return id||cur;const here=mapKey(((G.li??9)|0)-((G.li??9)|0)%10+9),b=st().best;if(here&&b[here])return here;const ks=maps().map(m=>m.id).filter(k=>b[k]);return ks.length?ks[ks.length-1]:'farm1'};
   $('lbBack').onclick=()=>G.show('sMenu');
   G.use({levelStart(){const b=$('endExtra');if(b)b.textContent=''},
     levelEnd(G,r){const b=$('endExtra');if(b)b.textContent='';if(!r.win)return;const map=mapKey(r.level);if(!map)return;SS.submit(map,r.score);setTimeout(()=>showEnd(map),0)},
