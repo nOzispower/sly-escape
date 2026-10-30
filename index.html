@@ -128,7 +128,7 @@ const FARMER_SPEED_SCALE=0.8; // farmer chase speed multiplier (keeps chases fai
  release:true for App Store / Google Play builds: forces unlockAll off, ignores ?dev=1 (no tester mode),
  and hides the coin shop unless a real billing provider (window.SlyBilling) is attached, so TEST banners never ship.
  Bump version/build for every store upload (also bump CACHE in sw.js so the offline copy updates). */
-const BUILD={version:'1.0.0',build:15,release:false,
+const BUILD={version:'1.0.0',build:17,release:false,
   supportEmail:'slyescape@mail.grokbot.com',privacyUrl:'privacy.html',supportUrl:'support.html'};
 const FEATURES={
   speciesHeads:true, // species-shaped side-view heads (hinged jaws, see-through mouth)
@@ -3627,8 +3627,9 @@ if(FEATURES.leaderboard){
     submit(map,score){const l=st();if(!map||!(score>0))return false;if(score<=(l.best[map]||0)&&!l.q.some(e=>e.map===map))return false;l.best[map]=Math.max(l.best[map]||0,score);
       const e={map,score:l.best[map],nick:l.nick,head:G.save.head||'default',pid:l.pid,ver:ver()},i=l.q.findIndex(x=>x.map===map);if(i>=0)l.q[i]=e;else l.q.push(e);G.persist();return this.flush()},
     pending(map){const l=st();return l.q.some(e=>e.map===map)},
-    async flush(){const l=st();if(busy||!l.nick||!l.q.length)return false;if(navigator.onLine===false){this.retry();return false}busy=true;let ok=true;
-      try{for(const e of l.q.slice()){if(!e.nick)e.nick=l.nick;try{await this.backend.submit(e);l.q.splice(l.q.indexOf(e),1)}catch(err){if(err.permanent){l.q.splice(l.q.indexOf(e),1)}else{ok=false;break}}}}finally{busy=false;G.persist()}
+    flush(){if(busy)return busy;const l=st();if(!l.nick||!l.q.length)return Promise.resolve(false);if(navigator.onLine===false){this.retry();return Promise.resolve(false)}busy=this._flush(l).finally(()=>{busy=false});return busy},
+    async _flush(l){let ok=true;
+      try{for(const e of l.q.slice()){if(!e.nick)e.nick=l.nick;try{await this.backend.submit(e);l.q.splice(l.q.indexOf(e),1)}catch(err){if(err.permanent){l.q.splice(l.q.indexOf(e),1)}else{ok=false;break}}}}finally{G.persist()}
       if(ok){backoff=15000}else this.retry();return ok},
     retry(){if(retryT)return;retryT=setTimeout(()=>{retryT=0;backoff=Math.min(backoff*2,600000);this.flush()},backoff)},
     getTop(map,n){return this.backend.getTop(map,n||CFG.topN,st().pid)},
